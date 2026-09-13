@@ -1,0 +1,88 @@
+using RetailPOS.Domain.Common;
+using RetailPOS.Domain.Enums;
+using RetailPOS.Domain.ValueObjects;
+
+namespace RetailPOS.Domain.Entities.Sales;
+
+/// <summary>
+/// Immutable authoritative sales invoice.
+/// Never deleted. Stores exact financial figures at commit time.
+/// </summary>
+public sealed class SaleInvoice : BaseEntity<Guid>
+{
+    public string InvoiceNumber { get; private set; }
+    public Guid ClientTransactionId { get; private set; }
+    public Guid TerminalId { get; private set; }
+    public Guid CashierId { get; private set; }
+    public Guid? CustomerId { get; private set; }
+    public PricingModel PricingModel { get; private set; }
+    public SaleStatus Status { get; private set; }
+
+    public Money GrossSubtotal { get; private set; }
+    public Money TotalLineDiscounts { get; private set; }
+    public Money InvoiceDiscount { get; private set; }
+    public Money TaxableSubtotal { get; private set; }
+    public Money TotalTax { get; private set; }
+    public Money RoundingAdjustment { get; private set; }
+    public Money FinalPayable { get; private set; }
+
+    private readonly List<SaleItem> _items = [];
+    public IReadOnlyList<SaleItem> Items => _items.AsReadOnly();
+
+    private readonly List<PaymentRecord> _payments = [];
+    public IReadOnlyList<PaymentRecord> Payments => _payments.AsReadOnly();
+
+    public SaleInvoice(
+        Guid id,
+        string invoiceNumber,
+        Guid clientTransactionId,
+        Guid terminalId,
+        Guid cashierId,
+        PricingModel pricingModel,
+        Money grossSubtotal,
+        Money totalLineDiscounts,
+        Money invoiceDiscount,
+        Money taxableSubtotal,
+        Money totalTax,
+        Money roundingAdjustment,
+        Money finalPayable,
+        Guid? customerId = null)
+    {
+        if (string.IsNullOrWhiteSpace(invoiceNumber))
+            throw new DomainException("Invoice number cannot be empty.", "INVALID_INVOICE_NUMBER");
+
+        Id = id;
+        InvoiceNumber = invoiceNumber.Trim().ToUpperInvariant();
+        ClientTransactionId = clientTransactionId;
+        TerminalId = terminalId;
+        CashierId = cashierId;
+        PricingModel = pricingModel;
+        GrossSubtotal = grossSubtotal;
+        TotalLineDiscounts = totalLineDiscounts;
+        InvoiceDiscount = invoiceDiscount;
+        TaxableSubtotal = taxableSubtotal;
+        TotalTax = totalTax;
+        RoundingAdjustment = roundingAdjustment;
+        FinalPayable = finalPayable;
+        CustomerId = customerId;
+        Status = SaleStatus.Completed;
+    }
+
+    public void AddItem(SaleItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        _items.Add(item);
+    }
+
+    public void AddPayment(PaymentRecord payment)
+    {
+        ArgumentNullException.ThrowIfNull(payment);
+        _payments.Add(payment);
+    }
+
+    public void MarkRefunded(bool partial = false)
+    {
+        Status = partial ? SaleStatus.PartiallyRefunded : SaleStatus.Refunded;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+}
