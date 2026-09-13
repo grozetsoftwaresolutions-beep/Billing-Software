@@ -1,4 +1,4 @@
-using RetailPOS.Domain.Common;
+﻿using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Domain.ValueObjects;
 
@@ -24,7 +24,7 @@ public sealed class StockBalance : BaseEntity<Guid>
     public Guid ProductId { get; private set; }
     public Quantity CurrentQuantity { get; private set; }
     public Quantity ReorderLevel { get; private set; }
-    public bool IsLowStock => CurrentQuantity.Value <= ReorderLevel.Value;
+    public bool IsLowStock { get; private set; }
 
     private StockBalance() { }
 
@@ -34,6 +34,7 @@ public sealed class StockBalance : BaseEntity<Guid>
         ProductId = productId;
         CurrentQuantity = Quantity.From(initialQuantity, unit);
         ReorderLevel = Quantity.From(reorderLevel, unit);
+        IsLowStock = CurrentQuantity.Value <= ReorderLevel.Value;
     }
 
     public void ApplyMovement(
@@ -64,12 +65,45 @@ public sealed class StockBalance : BaseEntity<Guid>
                 throw new DomainException($"Unsupported stock movement type {movementType}.", "INVALID_MOVEMENT_TYPE");
         }
 
+        IsLowStock = CurrentQuantity.Value <= ReorderLevel.Value;
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
     public void UpdateReorderLevel(Quantity newLevel)
     {
+        if (newLevel.Value < 0m)
+        {
+            throw new DomainException("Reorder level cannot be negative.", "INVALID_REORDER_LEVEL");
+        }
+        if (newLevel.Unit != null && CurrentQuantity.Unit != null && newLevel.Unit.Code != CurrentQuantity.Unit.Code)
+        {
+            throw new DomainException($"Unit mismatch for reorder level: {newLevel.Unit.Code} vs {CurrentQuantity.Unit.Code}.", "UNIT_MISMATCH");
+        }
+
         ReorderLevel = newLevel;
+        IsLowStock = CurrentQuantity.Value <= ReorderLevel.Value;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void UpdateUnitOfMeasure(UnitOfMeasure newUnit, Quantity newReorderLevel)
+    {
+        ArgumentNullException.ThrowIfNull(newUnit);
+        if (CurrentQuantity.Value != 0m)
+        {
+            throw new DomainException("Unit of measure cannot be changed when stock is non-zero.", "UNIT_IMMUTABLE");
+        }
+        if (newReorderLevel.Unit != null && newReorderLevel.Unit.Code != newUnit.Code)
+        {
+            throw new DomainException($"Unit mismatch for reorder level: {newReorderLevel.Unit.Code} vs {newUnit.Code}.", "UNIT_MISMATCH");
+        }
+        if (newReorderLevel.Value < 0m)
+        {
+            throw new DomainException("Reorder level cannot be negative.", "INVALID_REORDER_LEVEL");
+        }
+
+        CurrentQuantity = Quantity.Zero(newUnit);
+        ReorderLevel = newReorderLevel;
+        IsLowStock = CurrentQuantity.Value <= ReorderLevel.Value;
         UpdatedAtUtc = DateTime.UtcNow;
     }
 }

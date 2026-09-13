@@ -20,4 +20,28 @@ public sealed class ProductBarcode : BaseEntity<int>
         IsPrimary = isPrimary;
         IsActive = true;
     }
+
+    public void PromotePrimary()
+    {
+        IsPrimary = true;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void DemotePrimary()
+    {
+        IsPrimary = false;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void Deactivate()
+    {
+        IsActive = false;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void Activate()
+    {
+        IsActive = true;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
 }

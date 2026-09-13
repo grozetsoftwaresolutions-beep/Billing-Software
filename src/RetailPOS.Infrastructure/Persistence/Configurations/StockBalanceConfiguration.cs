@@ -26,5 +26,12 @@ public sealed class StockBalanceConfiguration : IEntityTypeConfiguration<StockBa
             .HasColumnName("reorder_level")
             .HasMaxLength(50)
             .IsRequired();
+
+        builder.Property(s => s.IsLowStock)
+            .HasColumnName("is_low_stock")
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        builder.HasIndex(s => s.IsLowStock).HasDatabaseName("IX_stock_balances_is_low_stock");
     }
 }

@@ -76,6 +76,9 @@ builder.Services.AddScoped<IUserRepository, EfUserRepository>();
 builder.Services.AddScoped<ITerminalRepository, EfTerminalRepository>();
 builder.Services.AddScoped<IAuditLogRepository, EfAuditLogRepository>();
 builder.Services.AddScoped<IStoreRepository, EfStoreRepository>();
+builder.Services.AddScoped<IProductRepository, EfProductRepository>();
+builder.Services.AddScoped<IInventoryRepository, EfInventoryRepository>();
+builder.Services.AddScoped<ICategoryRepository, EfCategoryRepository>();
 
 // Register cryptographic security and session management
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -87,6 +90,9 @@ builder.Services.AddSingleton<ISessionManager>(sp => sp.GetRequiredService<Local
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ITerminalService, TerminalService>();
+builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<IInventoryService, InventoryService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
 
 // Register infrastructure services
 builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>();
@@ -107,6 +113,11 @@ app.MapHealthEndpoints();
 app.MapAuthEndpoints();
 app.MapUserEndpoints();
 app.MapTerminalEndpoints();
+
+// Phase 5 Product, Inventory and Catalog endpoints
+app.MapProductEndpoints();
+app.MapInventoryEndpoints();
+app.MapCategoryEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())

@@ -1,4 +1,5 @@
 ﻿using System.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using RetailPOS.Application.Persistence;
@@ -45,6 +46,20 @@ public sealed class EfUnitOfWork : IUnitOfWork
     {
         var tx = await _context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         return new EfDbTransactionScope(tx);
+    }
+
+    public bool IsTransient(Exception ex)
+    {
+        if (ex is SqliteException sqlEx && sqlEx.SqliteErrorCode == 5)
+            return true;
+
+        if (ex is DbUpdateException dbEx && dbEx.InnerException is SqliteException innerSql && innerSql.SqliteErrorCode == 5)
+            return true;
+
+        if (ex is DbUpdateConcurrencyException)
+            return true;
+
+        return false;
     }
 }
 

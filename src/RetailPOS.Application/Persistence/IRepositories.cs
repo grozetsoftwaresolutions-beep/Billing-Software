@@ -14,6 +14,7 @@ public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     Task<IDbTransactionScope> BeginSerializableTransactionAsync(CancellationToken cancellationToken = default);
+    bool IsTransient(Exception ex);
 }
 
 public interface IUserRepository

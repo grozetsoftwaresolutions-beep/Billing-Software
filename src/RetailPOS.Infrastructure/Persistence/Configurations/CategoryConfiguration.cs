@@ -10,7 +10,7 @@ public sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
     {
         builder.ToTable("categories");
         builder.HasKey(c => c.Id);
-        builder.Property(c => c.Name).HasMaxLength(100).IsRequired();
+        builder.Property(c => c.Name).HasMaxLength(100).UseCollation("NOCASE").IsRequired();
         builder.HasIndex(c => c.Name).IsUnique().HasDatabaseName("UK_categories_name");
         builder.Property(c => c.Description).HasMaxLength(250);
         builder.Property(c => c.IsActive).IsRequired().HasDefaultValue(true);

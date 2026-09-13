@@ -10,8 +10,8 @@ public sealed class BrandConfiguration : IEntityTypeConfiguration<Brand>
     {
         builder.ToTable("brands");
         builder.HasKey(b => b.Id);
-        builder.Property(b => b.Name).HasMaxLength(100).IsRequired();
-        builder.HasIndex(b => b.Name).HasDatabaseName("IX_brands_name");
+        builder.Property(b => b.Name).HasMaxLength(100).UseCollation("NOCASE").IsRequired();
+        builder.HasIndex(b => b.Name).IsUnique().HasDatabaseName("UK_brands_name");
         builder.Property(b => b.IsActive).IsRequired().HasDefaultValue(true);
     }
 }
