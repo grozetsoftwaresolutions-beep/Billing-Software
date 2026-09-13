@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>RetailPOS.Server.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
@@ -11,10 +11,12 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\RetailPOS.Domain\RetailPOS.Domain.csproj" />
     <ProjectReference Include="..\..\src\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\RetailPOS.Infrastructure\RetailPOS.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\RetailPOS.Server\RetailPOS.Server.csproj" />
   </ItemGroup>
 </Project>
