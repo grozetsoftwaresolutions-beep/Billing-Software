@@ -18,6 +18,8 @@ public sealed class CashSession : BaseEntity<Guid>
         : null;
     public CashSessionStatus Status { get; private set; }
 
+    private CashSession() { }
+
     public CashSession(Guid id, Guid terminalId, Guid cashierId, Money openingFloat)
     {
         Id = id;

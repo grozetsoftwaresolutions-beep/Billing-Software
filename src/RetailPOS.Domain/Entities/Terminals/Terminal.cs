@@ -4,10 +4,12 @@ namespace RetailPOS.Domain.Entities.Terminals;
 
 public sealed class Terminal : BaseEntity<Guid>
 {
-    public string TerminalCode { get; private set; } // e.g. "COUNTER-01"
-    public string TerminalName { get; private set; }
+    public string TerminalCode { get; private set; } = null!;
+    public string TerminalName { get; private set; } = null!;
     public string? ReceiptPrinterName { get; private set; }
     public bool IsActive { get; private set; }
+
+    private Terminal() { }
 
     public Terminal(Guid id, string terminalCode, string terminalName, string? receiptPrinterName = null)
     {

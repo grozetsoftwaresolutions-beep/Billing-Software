@@ -5,12 +5,14 @@ namespace RetailPOS.Domain.Entities.Purchases;
 
 public sealed class Supplier : BaseEntity<Guid>
 {
-    public string Name { get; private set; }
+    public string Name { get; private set; } = null!;
     public string? ContactPerson { get; private set; }
     public string? Phone { get; private set; }
     public string? TaxNumber { get; private set; }
     public Money BalanceDue { get; private set; }
     public bool IsActive { get; private set; }
+
+    private Supplier() { }
 
     public Supplier(Guid id, string name, string? contactPerson = null, string? phone = null, string? taxNumber = null)
     {

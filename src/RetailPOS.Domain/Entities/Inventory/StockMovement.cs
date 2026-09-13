@@ -4,20 +4,18 @@ using RetailPOS.Domain.ValueObjects;
 
 namespace RetailPOS.Domain.Entities.Inventory;
 
-/// <summary>
-/// Immutable, append-only ledger record for every single stock change in the store.
-/// Never deleted.
-/// </summary>
 public sealed class StockMovement : BaseEntity<long>
 {
     public Guid ProductId { get; private set; }
     public StockMovementType MovementType { get; private set; }
     public Quantity QuantityChanged { get; private set; }
     public Quantity ResultingQuantity { get; private set; }
-    public string? ReferenceNumber { get; private set; } // e.g. Invoice Number, Purchase Number
+    public string? ReferenceNumber { get; private set; }
     public string? Reason { get; private set; }
     public Guid? UserId { get; private set; }
     public Guid? TerminalId { get; private set; }
+
+    private StockMovement() { }
 
     public StockMovement(
         long id,

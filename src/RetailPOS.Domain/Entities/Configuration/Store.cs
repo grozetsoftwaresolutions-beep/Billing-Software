@@ -6,14 +6,16 @@ namespace RetailPOS.Domain.Entities.Configuration;
 
 public sealed class Store : BaseEntity<int>
 {
-    public string StoreName { get; private set; }
+    public string StoreName { get; private set; } = null!;
     public string? Address { get; private set; }
     public string? Phone { get; private set; }
     public string? TaxRegistrationNumber { get; private set; }
     public string? ReceiptFooterMessage { get; private set; }
     public PricingModel DefaultPricingModel { get; private set; }
     public NegativeStockPolicy NegativeStockPolicy { get; private set; }
-    public Currency Currency { get; private set; }
+    public Currency Currency { get; private set; } = null!;
+
+    private Store() { }
 
     public Store(
         int id,

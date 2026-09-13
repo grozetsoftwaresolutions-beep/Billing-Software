@@ -2,13 +2,10 @@ using RetailPOS.Domain.Common;
 
 namespace RetailPOS.Domain.Entities.Taxes;
 
-/// <summary>
-/// Configurable tax category assigned to products (e.g. "GST 0%", "GST 5%", "GST 18%", "Exempt").
-/// </summary>
 public sealed class TaxCategory : BaseEntity<int>
 {
-    public string Code { get; private set; }
-    public string Name { get; private set; }
+    public string Code { get; private set; } = null!;
+    public string Name { get; private set; } = null!;
     public bool IsExempt { get; private set; }
     public bool IsActive { get; private set; }
 
@@ -16,6 +13,8 @@ public sealed class TaxCategory : BaseEntity<int>
     public IReadOnlyList<TaxComponent> Components => _components.AsReadOnly();
 
     public decimal TotalRatePercentage => IsExempt ? 0m : _components.Sum(c => c.RatePercentage);
+
+    private TaxCategory() { }
 
     public TaxCategory(int id, string code, string name, bool isExempt = false, IEnumerable<TaxComponent>? components = null)
     {

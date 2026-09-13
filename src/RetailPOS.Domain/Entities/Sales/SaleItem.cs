@@ -3,16 +3,12 @@ using RetailPOS.Domain.ValueObjects;
 
 namespace RetailPOS.Domain.Entities.Sales;
 
-/// <summary>
-/// Immutable line item in a sales invoice.
-/// Captures an exact historical snapshot of product, price, tax, and discount at sale time.
-/// </summary>
 public sealed class SaleItem : BaseEntity<long>
 {
     public Guid SaleId { get; private set; }
     public Guid ProductId { get; private set; }
-    public string ProductSKU { get; private set; }
-    public string ProductName { get; private set; }
+    public string ProductSKU { get; private set; } = null!;
+    public string ProductName { get; private set; } = null!;
     public Quantity Quantity { get; private set; }
     public Money UnitSellingPrice { get; private set; }
     public Money UnitCostPrice { get; private set; }
@@ -22,6 +18,8 @@ public sealed class SaleItem : BaseEntity<long>
     public Money TaxableAmount { get; private set; }
     public Money TaxAmount { get; private set; }
     public Money LineTotal { get; private set; }
+
+    private SaleItem() { }
 
     public SaleItem(
         long id,

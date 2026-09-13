@@ -19,15 +19,14 @@ public class InsufficientStockException : DomainException
     }
 }
 
-/// <summary>
-/// Current authoritative stock balance for a product at a store location.
-/// </summary>
 public sealed class StockBalance : BaseEntity<Guid>
 {
     public Guid ProductId { get; private set; }
     public Quantity CurrentQuantity { get; private set; }
     public Quantity ReorderLevel { get; private set; }
     public bool IsLowStock => CurrentQuantity.Value <= ReorderLevel.Value;
+
+    private StockBalance() { }
 
     public StockBalance(Guid productId, UnitOfMeasure unit, decimal initialQuantity = 0m, decimal reorderLevel = 5m)
     {
@@ -42,13 +41,11 @@ public sealed class StockBalance : BaseEntity<Guid>
         Quantity quantity,
         NegativeStockPolicy policy = NegativeStockPolicy.Disallowed)
     {
-
         switch (movementType)
         {
             case StockMovementType.Purchase:
             case StockMovementType.SaleReturn:
             case StockMovementType.AdjustmentIncrease:
-                // Increase stock
                 CurrentQuantity += quantity;
                 break;
 
@@ -56,7 +53,6 @@ public sealed class StockBalance : BaseEntity<Guid>
             case StockMovementType.PurchaseReturn:
             case StockMovementType.AdjustmentDecrease:
             case StockMovementType.Wastage:
-                // Decrease stock
                 if (policy == NegativeStockPolicy.Disallowed && CurrentQuantity.Value < quantity.Value)
                 {
                     throw new InsufficientStockException(ProductId, CurrentQuantity.Value, quantity.Value);
@@ -77,4 +73,3 @@ public sealed class StockBalance : BaseEntity<Guid>
         UpdatedAtUtc = DateTime.UtcNow;
     }
 }
-

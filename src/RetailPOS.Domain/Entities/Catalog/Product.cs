@@ -1,16 +1,15 @@
 using RetailPOS.Domain.Common;
-using RetailPOS.Domain.Entities.Taxes;
 using RetailPOS.Domain.ValueObjects;
 
 namespace RetailPOS.Domain.Entities.Catalog;
 
 public sealed class Product : BaseEntity<Guid>
 {
-    public string SKU { get; private set; }
-    public string Name { get; private set; }
+    public string SKU { get; private set; } = null!;
+    public string Name { get; private set; } = null!;
     public int? CategoryId { get; private set; }
     public int? BrandId { get; private set; }
-    public UnitOfMeasure Unit { get; private set; }
+    public UnitOfMeasure Unit { get; private set; } = null!;
     public Money CostPrice { get; private set; }
     public Money SellingPrice { get; private set; }
     public int TaxCategoryId { get; private set; }
@@ -19,6 +18,9 @@ public sealed class Product : BaseEntity<Guid>
 
     private readonly List<ProductBarcode> _barcodes = [];
     public IReadOnlyList<ProductBarcode> Barcodes => _barcodes.AsReadOnly();
+
+    // Required by EF Core
+    private Product() { }
 
     public Product(
         Guid id,

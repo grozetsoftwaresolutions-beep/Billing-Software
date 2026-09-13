@@ -5,13 +5,15 @@ namespace RetailPOS.Domain.Entities.Users;
 
 public sealed class User : BaseEntity<Guid>
 {
-    public string Username { get; private set; }
-    public string FullName { get; private set; }
-    public string PinHash { get; private set; }
-    public string PasswordHash { get; private set; }
-    public string Salt { get; private set; }
+    public string Username { get; private set; } = null!;
+    public string FullName { get; private set; } = null!;
+    public string PinHash { get; private set; } = null!;
+    public string PasswordHash { get; private set; } = null!;
+    public string Salt { get; private set; } = null!;
     public RoleType Role { get; private set; }
     public bool IsActive { get; private set; }
+
+    private User() { }
 
     public User(Guid id, string username, string fullName, string pinHash, string passwordHash, string salt, RoleType role)
     {

@@ -4,13 +4,9 @@ using RetailPOS.Domain.ValueObjects;
 
 namespace RetailPOS.Domain.Entities.Sales;
 
-/// <summary>
-/// Immutable authoritative sales invoice.
-/// Never deleted. Stores exact financial figures at commit time.
-/// </summary>
 public sealed class SaleInvoice : BaseEntity<Guid>
 {
-    public string InvoiceNumber { get; private set; }
+    public string InvoiceNumber { get; private set; } = null!;
     public Guid ClientTransactionId { get; private set; }
     public Guid TerminalId { get; private set; }
     public Guid CashierId { get; private set; }
@@ -31,6 +27,8 @@ public sealed class SaleInvoice : BaseEntity<Guid>
 
     private readonly List<PaymentRecord> _payments = [];
     public IReadOnlyList<PaymentRecord> Payments => _payments.AsReadOnly();
+
+    private SaleInvoice() { }
 
     public SaleInvoice(
         Guid id,

@@ -5,12 +5,14 @@ namespace RetailPOS.Domain.Entities.Customers;
 
 public sealed class Customer : BaseEntity<Guid>
 {
-    public string Name { get; private set; }
+    public string Name { get; private set; } = null!;
     public string? Phone { get; private set; }
     public string? Email { get; private set; }
     public Money OutstandingCredit { get; private set; }
     public Money CreditLimit { get; private set; }
     public bool IsActive { get; private set; }
+
+    private Customer() { }
 
     public Customer(Guid id, string name, string? phone = null, string? email = null, decimal creditLimit = 0m)
     {

@@ -14,6 +14,8 @@ public sealed class PurchaseItem : BaseEntity<long>
     public Money TaxAmount { get; private set; }
     public Money LineTotal { get; private set; }
 
+    private PurchaseItem() { }
+
     public PurchaseItem(
         long id,
         Guid purchaseId,
@@ -37,7 +39,7 @@ public sealed class PurchaseItem : BaseEntity<long>
 
 public sealed class PurchaseInvoice : BaseEntity<Guid>
 {
-    public string InvoiceNumber { get; private set; }
+    public string InvoiceNumber { get; private set; } = null!;
     public Guid SupplierId { get; private set; }
     public Money Subtotal { get; private set; }
     public Money TotalTax { get; private set; }
@@ -46,6 +48,8 @@ public sealed class PurchaseInvoice : BaseEntity<Guid>
 
     private readonly List<PurchaseItem> _items = [];
     public IReadOnlyList<PurchaseItem> Items => _items.AsReadOnly();
+
+    private PurchaseInvoice() { }
 
     public PurchaseInvoice(Guid id, string invoiceNumber, Guid supplierId, Money subtotal, Money totalTax, Money grandTotal)
     {

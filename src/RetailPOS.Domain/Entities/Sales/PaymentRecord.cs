@@ -4,9 +4,6 @@ using RetailPOS.Domain.ValueObjects;
 
 namespace RetailPOS.Domain.Entities.Sales;
 
-/// <summary>
-/// Immutable payment record associated with a sale invoice.
-/// </summary>
 public sealed class PaymentRecord : BaseEntity<Guid>
 {
     public Guid SaleId { get; private set; }
@@ -15,6 +12,8 @@ public sealed class PaymentRecord : BaseEntity<Guid>
     public Money TenderedAmount { get; private set; }
     public Money ChangeAmount { get; private set; }
     public string? ReferenceNumber { get; private set; }
+
+    private PaymentRecord() { }
 
     public PaymentRecord(
         Guid id,
