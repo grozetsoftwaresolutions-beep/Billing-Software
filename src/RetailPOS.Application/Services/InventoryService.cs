@@ -112,9 +112,16 @@ public sealed class InventoryService : IInventoryService
             {
                 throw;
             }
-            catch (Exception ex) when (_unitOfWork.IsTransient(ex) && attempt < maxRetries)
+            catch (Exception ex) when (_unitOfWork.IsTransient(ex))
             {
-                await Task.Delay(50 * attempt, cancellationToken);
+                _unitOfWork.ResetChangeTracker();
+                if (attempt < maxRetries)
+                {
+                    await Task.Delay(50 * attempt, cancellationToken);
+                    continue;
+                }
+
+                throw new DomainException("Database is busy. Please retry the adjustment.", ex, "DATABASE_BUSY");
             }
         }
 

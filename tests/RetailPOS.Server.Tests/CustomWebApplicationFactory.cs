@@ -12,6 +12,7 @@ namespace RetailPOS.Server.Tests;
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _dbPath;
+    public string DatabasePath => _dbPath;
 
     public CustomWebApplicationFactory()
     {

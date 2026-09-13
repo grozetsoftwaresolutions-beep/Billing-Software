@@ -61,6 +61,11 @@ public sealed class EfUnitOfWork : IUnitOfWork
 
         return false;
     }
+
+    public void ResetChangeTracker()
+    {
+        _context.ChangeTracker.Clear();
+    }
 }
 
 public sealed class EfUserRepository : IUserRepository

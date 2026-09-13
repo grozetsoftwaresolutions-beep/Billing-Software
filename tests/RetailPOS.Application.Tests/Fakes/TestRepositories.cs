@@ -22,6 +22,7 @@ public sealed class FakeUnitOfWork : IUnitOfWork
     public Task<IDbTransactionScope> BeginSerializableTransactionAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IDbTransactionScope>(new FakeTransactionScope());
     public bool IsTransient(Exception ex) => false;
+    public void ResetChangeTracker() { }
 }
 
 public sealed class FakeUserRepository : IUserRepository
