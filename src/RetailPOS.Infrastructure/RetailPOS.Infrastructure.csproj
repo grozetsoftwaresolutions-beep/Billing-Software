@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>RetailPOS.Infrastructure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RetailPOS.Domain\RetailPOS.Domain.csproj" />
+    <ProjectReference Include="..\RetailPOS.Application\RetailPOS.Application.csproj" />
+    <ProjectReference Include="..\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
+  </ItemGroup>
+</Project>

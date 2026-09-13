@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>RetailPOS.Server</RootNamespace>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RetailPOS.Domain\RetailPOS.Domain.csproj" />
+    <ProjectReference Include="..\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
+    <ProjectReference Include="..\RetailPOS.Application\RetailPOS.Application.csproj" />
+    <ProjectReference Include="..\RetailPOS.Infrastructure\RetailPOS.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

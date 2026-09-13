@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>RetailPOS.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RetailPOS.Domain\RetailPOS.Domain.csproj" />
+    <ProjectReference Include="..\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0-preview.*" Condition="Exists('...')"/>
+  </ItemGroup>
+</Project>
