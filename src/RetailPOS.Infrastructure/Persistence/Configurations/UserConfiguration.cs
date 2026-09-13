@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RetailPOS.Domain.Entities.Users;
 
@@ -20,5 +20,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.Salt).HasMaxLength(128).IsRequired();
         builder.Property(u => u.Role).IsRequired();
         builder.Property(u => u.IsActive).IsRequired().HasDefaultValue(true);
+        builder.Property(u => u.FailedPinAttempts).IsRequired().HasDefaultValue(0);
+        builder.Property(u => u.LockoutEndUtc);
     }
 }

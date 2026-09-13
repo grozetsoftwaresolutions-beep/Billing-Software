@@ -1,4 +1,4 @@
-using RetailPOS.Domain.Common;
+﻿using RetailPOS.Domain.Common;
 
 namespace RetailPOS.Domain.Entities.Terminals;
 
@@ -22,6 +22,8 @@ public sealed class Terminal : BaseEntity<Guid>
         ReceiptPrinterName = receiptPrinterName?.Trim();
         IsActive = true;
     }
+
+    public void Activate() => IsActive = true;
 
     public void Deactivate() => IsActive = false;
 }

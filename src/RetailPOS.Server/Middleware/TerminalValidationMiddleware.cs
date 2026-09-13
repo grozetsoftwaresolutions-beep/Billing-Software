@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RetailPOS.Contracts.Common;
 using RetailPOS.Infrastructure.Persistence;
+using RetailPOS.Server.Authentication;
 
 namespace RetailPOS.Server.Middleware;
 
@@ -45,7 +46,7 @@ public sealed class TerminalValidationMiddleware
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, RetailDbContext dbContext)
+    public async Task InvokeAsync(HttpContext context, RetailDbContext dbContext, ILocalSessionValidator sessionValidator)
     {
         var path = context.Request.Path.Value?.ToLowerInvariant() ?? string.Empty;
 
@@ -83,7 +84,7 @@ public sealed class TerminalValidationMiddleware
         if (!hasHeader)
         {
             _logger.LogTerminalRejected("Endpoint requires registered terminal header.", null, GetCorrelationId(context));
-            await RejectUnauthorizedTerminalAsync(context, "Terminal identification header (X-Terminal-ID) is required.");
+            await RejectUnauthorizedTerminalAsync(context, "Terminal identification header (X-Terminal-ID) is required.", "TERMINAL_UNAUTHORIZED");
             return;
         }
 
@@ -91,7 +92,7 @@ public sealed class TerminalValidationMiddleware
         if (string.IsNullOrWhiteSpace(rawHeader) || !Guid.TryParse(rawHeader, out var terminalId))
         {
             _logger.LogTerminalRejected("Invalid terminal ID format.", rawHeader, GetCorrelationId(context));
-            await RejectUnauthorizedTerminalAsync(context, "Invalid Terminal ID format.");
+            await RejectUnauthorizedTerminalAsync(context, "Invalid Terminal ID format.", "TERMINAL_UNAUTHORIZED");
             return;
         }
 
@@ -99,8 +100,25 @@ public sealed class TerminalValidationMiddleware
         if (!isValid)
         {
             _logger.LogTerminalRejected("Supplied Terminal ID is unknown or inactive.", rawHeader, GetCorrelationId(context));
-            await RejectUnauthorizedTerminalAsync(context, "Supplied Terminal ID is unknown or inactive.");
+            await RejectUnauthorizedTerminalAsync(context, "Supplied Terminal ID is unknown or inactive.", "TERMINAL_UNAUTHORIZED");
             return;
+        }
+
+        // Enforce session terminal binding if session token is present
+        if (context.Request.Headers.TryGetValue("Authorization", out var authHeader))
+        {
+            var headerStr = authHeader.ToString();
+            if (headerStr.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                var token = headerStr["Bearer ".Length..].Trim();
+                var session = await sessionValidator.ValidateSessionAsync(token);
+                if (session.IsValid && session.TerminalId.HasValue && session.TerminalId.Value != terminalId)
+                {
+                    _logger.LogTerminalRejected("Session terminal binding mismatch.", rawHeader, GetCorrelationId(context));
+                    await RejectUnauthorizedTerminalAsync(context, "Active session is bound to a different POS terminal.", "TERMINAL_MISMATCH");
+                    return;
+                }
+            }
         }
 
         context.Items[ValidatedTerminalIdItemKey] = terminalId;
@@ -112,13 +130,13 @@ public sealed class TerminalValidationMiddleware
         return context.Items.TryGetValue(CorrelationIdMiddleware.ItemKey, out var cid) ? cid?.ToString() : null;
     }
 
-    private static async Task RejectUnauthorizedTerminalAsync(HttpContext context, string message)
+    private static async Task RejectUnauthorizedTerminalAsync(HttpContext context, string message, string errorCode)
     {
         context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
         context.Response.ContentType = "application/json";
 
         var correlationId = GetCorrelationId(context);
-        var envelope = ApiResponse.Fail<object>(message, "TERMINAL_UNAUTHORIZED", correlationId);
+        var envelope = ApiResponse.Fail<object>(message, errorCode, correlationId);
         await JsonSerializer.SerializeAsync(context.Response.Body, envelope, JsonOptions);
     }
 }

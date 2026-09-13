@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>RetailPOS.Application.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
@@ -14,7 +14,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\RetailPOS.Domain\RetailPOS.Domain.csproj" />
-    <ProjectReference Include="..\..\src\RetailPOS.Application\RetailPOS.Application.csproj" />
     <ProjectReference Include="..\..\src\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\RetailPOS.Application\RetailPOS.Application.csproj" />
+    <ProjectReference Include="..\..\src\RetailPOS.Infrastructure\RetailPOS.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

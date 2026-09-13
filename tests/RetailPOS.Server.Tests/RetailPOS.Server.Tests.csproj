@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\RetailPOS.Domain\RetailPOS.Domain.csproj" />
     <ProjectReference Include="..\..\src\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\RetailPOS.Application\RetailPOS.Application.csproj" />
     <ProjectReference Include="..\..\src\RetailPOS.Infrastructure\RetailPOS.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\RetailPOS.Server\RetailPOS.Server.csproj" />
   </ItemGroup>

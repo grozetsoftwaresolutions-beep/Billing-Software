@@ -31,18 +31,8 @@ public static class DatabaseInitializer
             context.TaxCategories.AddRange(gst0, gst5, gst18, exempt);
         }
 
-        // 4. Seed initial Store profile if empty (no hardcoded credentials!)
-        if (!await context.Stores.AnyAsync(cancellationToken))
-        {
-            var store = new Store(
-                1,
-                "Grozet Supermarket",
-                "Store Address",
-                "9876543210",
-                "GSTIN-PENDING",
-                "Thank you for shopping with us! Visit again.");
-            context.Stores.Add(store);
-        }
+        // 4. Initial Store profile and first Owner are created atomically during POST /api/v1/auth/setup-owner
+        // No hardcoded credentials or premature store seeding.
 
         // 5. Seed default invoice sequence if empty
         if (!await context.InvoiceSequences.AnyAsync(cancellationToken))

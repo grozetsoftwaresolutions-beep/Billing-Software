@@ -6,9 +6,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using RetailPOS.Application.Persistence;
+using RetailPOS.Application.Security;
+using RetailPOS.Application.Services;
 using RetailPOS.Infrastructure.Backup;
 using RetailPOS.Infrastructure.Persistence;
 using RetailPOS.Infrastructure.Persistence.Repositories;
+using RetailPOS.Infrastructure.Security;
 using RetailPOS.Server.Authentication;
 using RetailPOS.Server.Configuration;
 using RetailPOS.Server.Endpoints;
@@ -66,9 +70,25 @@ builder.Services.AddDbContext<RetailDbContext>(options =>
     options.UseSqlite(serverOptions.BuildSqliteConnectionString());
 });
 
-// Register local session manager and infrastructure services
-builder.Services.AddSingleton<ILocalSessionValidator, LocalSessionManager>();
-builder.Services.AddSingleton<LocalSessionManager>(sp => (LocalSessionManager)sp.GetRequiredService<ILocalSessionValidator>());
+// Register persistence repositories and unit of work
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+builder.Services.AddScoped<IUserRepository, EfUserRepository>();
+builder.Services.AddScoped<ITerminalRepository, EfTerminalRepository>();
+builder.Services.AddScoped<IAuditLogRepository, EfAuditLogRepository>();
+builder.Services.AddScoped<IStoreRepository, EfStoreRepository>();
+
+// Register cryptographic security and session management
+builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+builder.Services.AddSingleton<LocalSessionManager>();
+builder.Services.AddSingleton<ILocalSessionValidator>(sp => sp.GetRequiredService<LocalSessionManager>());
+builder.Services.AddSingleton<ISessionManager>(sp => sp.GetRequiredService<LocalSessionManager>());
+
+// Register application domain services
+builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<ITerminalService, TerminalService>();
+
+// Register infrastructure services
 builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>();
 builder.Services.AddScoped<AtomicStockManager>();
 builder.Services.AddScoped<InvoiceSequenceGenerator>();
@@ -80,8 +100,13 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseMiddleware<TerminalValidationMiddleware>();
 
-// Health and monitoring endpoints (/api/v1/health, /api/v1/health/database, /api/v1/terminal/validate)
+// Health and monitoring endpoints
 app.MapHealthEndpoints();
+
+// Phase 4 Authentication, User and Terminal management endpoints
+app.MapAuthEndpoints();
+app.MapUserEndpoints();
+app.MapTerminalEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())

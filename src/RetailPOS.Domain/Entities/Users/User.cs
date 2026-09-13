@@ -1,4 +1,4 @@
-using RetailPOS.Domain.Common;
+﻿using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Enums;
 
 namespace RetailPOS.Domain.Entities.Users;
@@ -12,6 +12,8 @@ public sealed class User : BaseEntity<Guid>
     public string Salt { get; private set; } = null!;
     public RoleType Role { get; private set; }
     public bool IsActive { get; private set; }
+    public int FailedPinAttempts { get; private set; }
+    public DateTime? LockoutEndUtc { get; private set; }
 
     private User() { }
 
@@ -25,12 +27,53 @@ public sealed class User : BaseEntity<Guid>
         Id = id;
         Username = username.Trim().ToLowerInvariant();
         FullName = fullName.Trim();
-        PinHash = pinHash;
-        PasswordHash = passwordHash;
-        Salt = salt;
+        PinHash = pinHash ?? string.Empty;
+        PasswordHash = passwordHash ?? string.Empty;
+        Salt = salt ?? string.Empty;
         Role = role;
         IsActive = true;
+        FailedPinAttempts = 0;
+        LockoutEndUtc = null;
     }
 
-    public void Deactivate() => IsActive = false;
+    public void UpdateCredentials(string passwordHash, string pinHash, string salt)
+    {
+        PasswordHash = passwordHash ?? string.Empty;
+        PinHash = pinHash ?? string.Empty;
+        Salt = salt ?? string.Empty;
+        ResetPinLockout();
+    }
+
+    public void UpdateRole(RoleType role)
+    {
+        Role = role;
+    }
+
+    public void Activate() => IsActive = true;
+
+    public void Deactivate()
+    {
+        IsActive = false;
+        ResetPinLockout();
+    }
+
+    public bool IsLockedOut(DateTime utcNow)
+    {
+        return LockoutEndUtc.HasValue && LockoutEndUtc.Value > utcNow;
+    }
+
+    public void RecordFailedPinAttempt(int maxAttempts, TimeSpan lockoutDuration, DateTime utcNow)
+    {
+        FailedPinAttempts++;
+        if (FailedPinAttempts >= maxAttempts)
+        {
+            LockoutEndUtc = utcNow.Add(lockoutDuration);
+        }
+    }
+
+    public void ResetPinLockout()
+    {
+        FailedPinAttempts = 0;
+        LockoutEndUtc = null;
+    }
 }

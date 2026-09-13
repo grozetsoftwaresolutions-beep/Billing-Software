@@ -1,4 +1,4 @@
-using RetailPOS.Domain.Common;
+﻿using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Domain.ValueObjects;
 
@@ -40,5 +40,13 @@ public sealed class Store : BaseEntity<int>
         DefaultPricingModel = defaultPricingModel;
         NegativeStockPolicy = negativeStockPolicy;
         Currency = currency ?? Currency.INR;
+    }
+
+    public void UpdateStoreName(string newStoreName)
+    {
+        if (string.IsNullOrWhiteSpace(newStoreName))
+            throw new DomainException("Store name cannot be empty.", "INVALID_STORE_NAME");
+
+        StoreName = newStoreName.Trim();
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using RetailPOS.Application.Security;
 using RetailPOS.Domain.Enums;
 
 namespace RetailPOS.Server.Authentication;
@@ -8,7 +9,10 @@ public sealed record ActiveSession(
     string Token,
     Guid UserId,
     string Username,
+    string FullName,
     RoleType Role,
+    Guid? TerminalId,
+    DateTime CreatedAtUtc,
     DateTime ExpiresAtUtc);
 
 /// <summary>
@@ -18,27 +22,36 @@ public sealed record ActiveSession(
 /// ARCHITECTURAL NOTES:
 /// 1. Process-Local: Sessions are stored in-memory using a thread-safe ConcurrentDictionary.
 /// 2. Lifecycle: Server shutdown or restart invalidates active sessions; cashiers re-authenticate upon server reboot.
-/// 3. Future Scope: Final session persistence, audit tracking, and cross-restart synchronization will be finalized in the application authentication phase.
+/// 3. Terminal-Bound: Cashier POS sessions are bound to a specific TerminalId to prevent cross-counter hijacking.
 /// 4. Security Hygiene: Credentials, passwords, PINs, and tokens must NEVER be written to operational logs.
 /// </summary>
-public sealed class LocalSessionManager : ILocalSessionValidator
+public sealed class LocalSessionManager : ILocalSessionValidator, ISessionManager
 {
     private readonly ConcurrentDictionary<string, ActiveSession> _activeSessions = new();
 
-    public string CreateSession(Guid userId, string username, RoleType role, TimeSpan duration)
+    public string CreateSession(Guid userId, string username, string fullName, RoleType role, Guid? terminalId, TimeSpan duration)
     {
         var tokenBytes = RandomNumberGenerator.GetBytes(32);
         var token = Convert.ToHexString(tokenBytes).ToLowerInvariant();
 
+        var now = DateTime.UtcNow;
         var session = new ActiveSession(
             token,
             userId,
             username,
+            fullName,
             role,
-            DateTime.UtcNow.Add(duration));
+            terminalId,
+            now,
+            now.Add(duration));
 
         _activeSessions[token] = session;
         return token;
+    }
+
+    public string CreateSession(Guid userId, string username, RoleType role, TimeSpan duration)
+    {
+        return CreateSession(userId, username, username, role, null, duration);
     }
 
     public Task<SessionValidationResult> ValidateSessionAsync(string sessionToken, CancellationToken cancellationToken = default)
@@ -52,7 +65,14 @@ public sealed class LocalSessionManager : ILocalSessionValidator
         {
             if (session.ExpiresAtUtc > DateTime.UtcNow)
             {
-                return Task.FromResult(new SessionValidationResult(true, session.UserId, session.Username, session.Role));
+                return Task.FromResult(new SessionValidationResult(
+                    true,
+                    session.UserId,
+                    session.Username,
+                    session.FullName,
+                    session.Role,
+                    session.TerminalId,
+                    session.ExpiresAtUtc));
             }
 
             // Expired session

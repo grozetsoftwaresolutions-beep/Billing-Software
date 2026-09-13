@@ -1,5 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>RetailPOS.Contracts</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RetailPOS.Domain\RetailPOS.Domain.csproj" />
+  </ItemGroup>
 </Project>
