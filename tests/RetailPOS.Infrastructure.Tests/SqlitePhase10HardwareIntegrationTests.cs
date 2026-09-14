@@ -352,4 +352,79 @@ public sealed class SqlitePhase10HardwareIntegrationTests : IDisposable
         Assert.False(result.Success);
         Assert.True(sw.ElapsedMilliseconds < 5500, $"Printer call took {sw.ElapsedMilliseconds}ms, expected under 5500ms");
     }
+
+    [Fact]
+    public async Task ReprintFailureWorkflow_PhysicalPrintFails_ReportsReprintFailed_AuditLogged_ReprintCountUnchanged()
+    {
+        using var context = new RetailDbContext(_options);
+        var uow = new EfUnitOfWork(context);
+        var saleRepo = new EfSaleRepository(context);
+        var storeRepo = new EfStoreRepository(context);
+        var termRepo = new EfTerminalRepository(context);
+        var hwRepo = new TerminalHardwareConfigRepository(context);
+        var auditRepo = new EfAuditLogRepository(context);
+
+        var terminal = new Terminal(Guid.NewGuid(), "POS-T10", "Counter 10");
+        await termRepo.AddAsync(terminal);
+        await uow.SaveChangesAsync();
+
+        var invoice = new SaleInvoice(
+            Guid.NewGuid(), "INV-FAIL-REP-001", Guid.NewGuid(), terminal.Id, Guid.NewGuid(),
+            PricingModel.TaxInclusive, Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(),
+            Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(), Money.FromMinorUnits(5000));
+        await saleRepo.AddAsync(invoice);
+        await uow.SaveChangesAsync();
+
+        // 1. Initial direct print succeeds
+        var workingPrinter = new SimulatedReceiptPrinter();
+        var workingService = new ReceiptService(saleRepo, storeRepo, hwRepo, auditRepo, uow, workingPrinter);
+        var firstPrintResult = await workingService.PrintDirectSaleReceiptAsync(invoice.Id, terminal.Id, Guid.NewGuid(), isReprint: false);
+        Assert.Equal(PrintStatus.Success, firstPrintResult.Status);
+        Assert.Equal(0, firstPrintResult.ReprintCount);
+
+        // 2. Physical reprint attempted, but hardware printer fails (paper jam / offline)
+        var failingPrinter = new FailingReceiptPrinter();
+        var failingService = new ReceiptService(saleRepo, storeRepo, hwRepo, auditRepo, uow, failingPrinter);
+        var cashierId = Guid.NewGuid();
+
+        var failedReprintResult = await failingService.PrintDirectSaleReceiptAsync(invoice.Id, terminal.Id, cashierId, isReprint: true);
+        Assert.Equal(PrintStatus.Failed, failedReprintResult.Status);
+        Assert.True(failedReprintResult.IsReprint);
+        Assert.Equal("Printer paper jammed or offline", failedReprintResult.ErrorMessage);
+
+        // Verify reprint count and last reprinted timestamp are UNCHANGED
+        var reloaded = await saleRepo.GetByIdAsync(invoice.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(0, reloaded.ReprintCount);
+        Assert.Null(reloaded.LastReprintedAtUtc);
+
+        // Verify audit log recorded REPRINT_FAILED
+        var failedAudits = await context.AuditLogs
+            .Where(a => a.Action == "REPRINT_FAILED")
+            .ToListAsync();
+        Assert.NotEmpty(failedAudits);
+        Assert.Contains("Print I/O failed", failedAudits[0].Details);
+
+        // 3. Client reports failure explicitly via ReportReprintFailedAsync
+        await workingService.ReportReprintFailedAsync(invoice.Id, terminal.Id, cashierId, "Client detected paper jam");
+        var afterClientReport = await saleRepo.GetByIdAsync(invoice.Id);
+        Assert.NotNull(afterClientReport);
+        Assert.Equal(0, afterClientReport.ReprintCount);
+        Assert.Null(afterClientReport.LastReprintedAtUtc);
+
+        // 4. Hardware recovers -> successful reprint executes
+        var recoveryReprintResult = await workingService.PrintDirectSaleReceiptAsync(invoice.Id, terminal.Id, cashierId, isReprint: true);
+        Assert.Equal(PrintStatus.Success, recoveryReprintResult.Status);
+        Assert.Equal(1, recoveryReprintResult.ReprintCount);
+
+        var afterSuccess = await saleRepo.GetByIdAsync(invoice.Id);
+        Assert.NotNull(afterSuccess);
+        Assert.Equal(1, afterSuccess.ReprintCount);
+        Assert.NotNull(afterSuccess.LastReprintedAtUtc);
+
+        var successAudits = await context.AuditLogs
+            .Where(a => a.Action == "RECEIPT_REPRINTED")
+            .ToListAsync();
+        Assert.NotEmpty(successAudits);
+    }
 }

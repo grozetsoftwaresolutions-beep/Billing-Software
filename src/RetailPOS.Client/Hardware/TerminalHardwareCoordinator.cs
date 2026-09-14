@@ -16,12 +16,14 @@ public sealed class TerminalHardwareCoordinator : IAsyncDisposable, IDisposable
     private ICashDrawer _drawer;
     private IWeighingScale _scale;
     private KeyboardWedgeListener _scanner;
+    private IWindowsKeyboardHook? _keyboardHook;
 
     public Guid TerminalId { get; private set; } = Guid.Empty;
     public TerminalHardwareConfigDto? ActiveConfig { get; private set; }
     public bool IsInitialized { get; private set; }
 
     public KeyboardWedgeListener Scanner => _scanner;
+    public IWindowsKeyboardHook? KeyboardHook => _keyboardHook;
     public IReceiptPrinter Printer => _printer;
     public ICashDrawer Drawer => _drawer;
     public IWeighingScale Scale => _scale;
@@ -29,12 +31,14 @@ public sealed class TerminalHardwareCoordinator : IAsyncDisposable, IDisposable
     public TerminalHardwareCoordinator(
         IReceiptPrinter? printer = null,
         ICashDrawer? drawer = null,
-        IWeighingScale? scale = null)
+        IWeighingScale? scale = null,
+        IWindowsKeyboardHook? keyboardHook = null)
     {
         _printer = printer ?? new SimulatedReceiptPrinter();
         _drawer = drawer ?? new SimulatedCashDrawer();
         _scale = scale ?? new SimulatedWeighingScale();
         _scanner = new KeyboardWedgeListener();
+        _keyboardHook = keyboardHook;
     }
 
     public void Initialize(TerminalHardwareConfigDto config)
@@ -80,9 +84,16 @@ public sealed class TerminalHardwareCoordinator : IAsyncDisposable, IDisposable
                 _scale = new SimulatedWeighingScale();
             }
 
-            // Configure scanner listener
+            // Configure scanner listener & OS-level keyboard hook
+            _keyboardHook?.Dispose();
             _scanner.Dispose();
+        _keyboardHook?.Dispose();
             _scanner = new KeyboardWedgeListener(config.ScannerMaxInterKeyMs);
+            _keyboardHook = new WindowsLowLevelKeyboardHook(_scanner);
+            if (OperatingSystem.IsWindows())
+            {
+                _keyboardHook.StartHook();
+            }
 
             IsInitialized = true;
         }
@@ -158,6 +169,7 @@ public sealed class TerminalHardwareCoordinator : IAsyncDisposable, IDisposable
         _printerLock.Dispose();
         _scaleLock.Dispose();
         _scanner.Dispose();
+        _keyboardHook?.Dispose();
         (_printer as IDisposable)?.Dispose();
         (_drawer as IDisposable)?.Dispose();
         (_scale as IDisposable)?.Dispose();
@@ -168,6 +180,7 @@ public sealed class TerminalHardwareCoordinator : IAsyncDisposable, IDisposable
         _printerLock.Dispose();
         _scaleLock.Dispose();
         _scanner.Dispose();
+        _keyboardHook?.Dispose();
 
         if (_printer is IAsyncDisposable pAsync)
             await pAsync.DisposeAsync();

@@ -193,6 +193,7 @@ public sealed class ReceiptService : IReceiptService
         catch (Exception ex)
         {
             await LogAuditAsync("RECEIPT_PRINT_FAILED", invoice.Id.ToString(), cashierId, terminalId, $"Layout generation failed: {ex.Message}", cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
             return new ReceiptPrintResponseDto(invoice.Id, invoice.InvoiceNumber, PrintStatus.Failed, ex.Message, isReprint, invoice.ReprintCount, DateTime.UtcNow);
         }
 
@@ -201,6 +202,7 @@ public sealed class ReceiptService : IReceiptService
         {
             var auditAction = isReprint ? "REPRINT_FAILED" : "RECEIPT_PRINT_FAILED";
             await LogAuditAsync(auditAction, invoice.Id.ToString(), cashierId, terminalId, $"Print I/O failed: {printResult.ErrorMessage}", cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
             return new ReceiptPrintResponseDto(invoice.Id, invoice.InvoiceNumber, PrintStatus.Failed, printResult.ErrorMessage, isReprint, invoice.ReprintCount, DateTime.UtcNow);
         }
 
@@ -288,6 +290,7 @@ public sealed class ReceiptService : IReceiptService
         var printResult = await _printer.PrintRawBytesAsync(bytes, cancellationToken);
 
         await LogAuditAsync("TEST_PRINT_EXECUTED", terminalId.ToString(), userId, terminalId, $"Diagnostic test print on {printerName} ({request.PaperWidth})", cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new TestPrintResponseDto(printResult.Success, printerName, request.PaperWidth, bytes.Length, printResult.ErrorMessage, DateTime.UtcNow);
     }

@@ -67,5 +67,38 @@ public class SqliteBackupAndIntegrityTests : IDisposable
             Assert.Equal(5000, readProduct.SellingPrice.MinorUnits);
         }
     }
-}
 
+    [Fact]
+    public async Task PragmaIntegrityAndForeignKeyChecks_ProduceZeroViolationsAndOk()
+    {
+        using var context = new RetailDbContext(_options);
+        await DatabaseInitializer.InitializeDatabaseAsync(context);
+
+        var conn = context.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            await conn.OpenAsync();
+        }
+
+        // 1. PRAGMA foreign_key_check; -> Expected: 0 violations
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA foreign_key_check;";
+            using var reader = await cmd.ExecuteReaderAsync();
+            var violations = 0;
+            while (await reader.ReadAsync())
+            {
+                violations++;
+            }
+            Assert.Equal(0, violations);
+        }
+
+        // 2. PRAGMA integrity_check; -> Expected: ok
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA integrity_check;";
+            var result = (string?)(await cmd.ExecuteScalarAsync());
+            Assert.Equal("ok", result);
+        }
+    }
+}

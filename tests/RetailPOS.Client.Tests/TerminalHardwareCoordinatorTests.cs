@@ -133,4 +133,67 @@ public sealed class TerminalHardwareCoordinatorTests
         Assert.True(coordinator.IsInitialized);
         Assert.IsType<RetailPOS.Infrastructure.Hardware.SerialComWeighingScale>(coordinator.Scale);
     }
+    [Fact]
+    public void WindowsLowLevelKeyboardHook_CapturesSystemWideKeys_AndDispatchesToWedgeListener()
+    {
+        using var listener = new KeyboardWedgeListener(maxInterKeyMs: 35);
+        using var hook = new WindowsLowLevelKeyboardHook(listener);
+
+        BarcodeScannedEventArgs? eventArgs = null;
+        listener.BarcodeScanned += (_, args) => eventArgs = args;
+
+        hook.StartHook();
+
+        // Simulate focus-independent low-level keyboard events
+        var keys = new uint[] { 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x0D };
+        foreach (var vk in keys)
+        {
+            hook.SimulateLowLevelKeyEvent(vk);
+        }
+
+        Assert.NotNull(eventArgs);
+        Assert.Equal("8901234567890", eventArgs.Barcode);
+        Assert.Equal(13, eventArgs.RawLength);
+
+        hook.StopHook();
+        Assert.False(hook.IsHookActive);
+    }
+
+    [Fact]
+    public void TerminalHardwareCoordinator_InitializesKeyboardHook_OnConfigUpdate()
+    {
+        using var coordinator = new TerminalHardwareCoordinator();
+        var terminalId = Guid.NewGuid();
+
+        var config = new TerminalHardwareConfigDto(
+            TerminalId: terminalId,
+            PrinterConnectionType: PrinterConnectionType.Simulated,
+            PrinterNameOrAddress: "SimulatedPrinter",
+            PaperWidth: PaperWidth.Width80mm,
+            PrinterEncoding: PrinterEncoding.Ascii,
+            PrinterCodePage: 0,
+            PrinterTimeoutMs: 5000,
+            AutoCut: true,
+            OpenDrawerOnCashSale: true,
+            DrawerConnectionType: DrawerConnectionType.Simulated,
+            DrawerKickPin: 0,
+            DrawerPulseOnMs: 50,
+            DrawerPulseOffMs: 500,
+            ScannerMaxInterKeyMs: 35,
+            ScaleConnectionType: ScaleConnectionType.Simulated,
+            ScalePortName: null,
+            ScaleBaudRate: 9600,
+            ScaleDataBits: 8,
+            ScaleParity: 0,
+            ScaleStopBits: 1,
+            ScaleProtocol: ScaleProtocol.GenericAscii,
+            ScaleTimeoutMs: 2000,
+            IsScaleEnabled: true,
+            UpdatedAtUtc: DateTime.UtcNow);
+
+        coordinator.Initialize(config);
+
+        Assert.NotNull(coordinator.KeyboardHook);
+        Assert.IsType<WindowsLowLevelKeyboardHook>(coordinator.KeyboardHook);
+    }
 }
