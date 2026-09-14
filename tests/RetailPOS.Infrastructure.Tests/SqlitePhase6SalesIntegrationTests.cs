@@ -116,6 +116,230 @@ public class SqlitePhase6SalesIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task SqliteHistoricalTaxComponent_DeleteSaleItem_ThrowsDbUpdateException_DueToOnDeleteRestrict()
+    {
+        var saleId = Guid.NewGuid();
+        long saleItemId = 2001;
+        var productId = Guid.NewGuid();
+
+        // 1. Seed Sale, SaleItem, and SaleItemTaxComponent
+        using (var seedContext = new RetailDbContext(_options))
+        {
+            var invoice = new SaleInvoice(
+                saleId,
+                "INV-20260914-000099",
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                PricingModel.TaxInclusive,
+                Money.FromMinorUnits(5000),
+                Money.Zero(),
+                Money.Zero(),
+                Money.FromMinorUnits(4237),
+                Money.FromMinorUnits(763),
+                Money.Zero(),
+                Money.FromMinorUnits(5000));
+
+            var item = new SaleItem(
+                saleItemId,
+                saleId,
+                productId,
+                "RESTRICT-SKU",
+                "Restrict Test Product",
+                Quantity.From(1, UnitOfMeasure.Piece),
+                Money.FromMinorUnits(5000),
+                Money.FromMinorUnits(3000),
+                Money.FromMinorUnits(5000),
+                Money.Zero(),
+                18.00m,
+                Money.FromMinorUnits(4237),
+                Money.FromMinorUnits(763),
+                Money.FromMinorUnits(5000));
+
+            var cgst = new SaleItemTaxComponent(10, saleItemId, "CGST", 9.00m, Money.FromMinorUnits(381));
+            item.AddTaxComponent(cgst);
+            invoice.AddItem(item);
+
+            seedContext.SalesInvoices.Add(invoice);
+            await seedContext.SaveChangesAsync();
+        }
+
+        // 2. Attempt to delete the SaleItem directly while tax component exists
+        using (var deleteContext = new RetailDbContext(_options))
+        {
+            var itemToDelete = await deleteContext.SalesItems.FirstAsync(i => i.Id == saleItemId);
+            deleteContext.SalesItems.Remove(itemToDelete);
+
+            // ON DELETE RESTRICT must reject deletion of SaleItem
+            await Assert.ThrowsAsync<DbUpdateException>(() => deleteContext.SaveChangesAsync());
+        }
+    }
+
+    [Fact]
+    public async Task SqliteRefundItemTaxData_PersistsAndRetrievesTaxRefundAmountCorrectly()
+    {
+        var saleId = Guid.NewGuid();
+        var refundId = Guid.NewGuid();
+        var clientTxId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        long saleItemId = 3001;
+
+        // 1. Seed invoice and refund with explicit TaxRefundAmount
+        using (var seedContext = new RetailDbContext(_options))
+        {
+            var invoice = new SaleInvoice(
+                saleId,
+                "INV-20260914-000055",
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                PricingModel.TaxInclusive,
+                Money.FromMinorUnits(10000),
+                Money.Zero(),
+                Money.Zero(),
+                Money.FromMinorUnits(8475),
+                Money.FromMinorUnits(1525),
+                Money.Zero(),
+                Money.FromMinorUnits(10000));
+
+            var item = new SaleItem(
+                saleItemId,
+                saleId,
+                productId,
+                "REFUND-SKU",
+                "Refund Tax Product",
+                Quantity.From(1, UnitOfMeasure.Piece),
+                Money.FromMinorUnits(10000),
+                Money.FromMinorUnits(6000),
+                Money.FromMinorUnits(10000),
+                Money.Zero(),
+                18.00m,
+                Money.FromMinorUnits(8475),
+                Money.FromMinorUnits(1525),
+                Money.FromMinorUnits(10000));
+
+            invoice.AddItem(item);
+            seedContext.SalesInvoices.Add(invoice);
+            await seedContext.SaveChangesAsync();
+
+            var refund = new SaleRefund(
+                refundId,
+                saleId,
+                "REF-20260914-000055",
+                clientTxId,
+                Guid.NewGuid(),
+                "manager",
+                Guid.NewGuid(),
+                PaymentMethod.Cash,
+                Money.FromMinorUnits(10000),
+                "Customer return");
+
+            var refundItem = new SaleRefundItem(
+                id: 1,
+                refundId: refundId,
+                saleItemId: saleItemId,
+                productId: productId,
+                quantityRefunded: Quantity.From(1m, UnitOfMeasure.Piece),
+                refundAmount: Money.FromMinorUnits(10000),
+                taxRefundAmount: Money.FromMinorUnits(1525));
+
+            refund.AddItem(refundItem);
+            seedContext.SaleRefunds.Add(refund);
+            await seedContext.SaveChangesAsync();
+        }
+
+        // 2. Query back and verify TaxRefundAmount is preserved and queryable
+        using (var verifyContext = new RetailDbContext(_options))
+        {
+            var refund = await verifyContext.SaleRefunds
+                .Include(r => r.Items)
+                .FirstOrDefaultAsync(r => r.Id == refundId);
+
+            Assert.NotNull(refund);
+            Assert.Single(refund.Items);
+            var rItem = refund.Items[0];
+
+            Assert.Equal(1m, rItem.QuantityRefunded.Value);
+            Assert.Equal(10000, rItem.RefundAmount.MinorUnits);
+            Assert.Equal(1525, rItem.TaxRefundAmount.MinorUnits);
+        }
+    }
+
+    [Fact]
+    public async Task SqliteTaxRatePercentage_ExactDecimalRoundTrip_NoPrecisionLoss()
+    {
+        var saleId = Guid.NewGuid();
+        long saleItemId = 4001;
+        var productId = Guid.NewGuid();
+
+        // Test diverse tax rates including decimals: 9.00%, 18.00%, 2.50%, 0.125%
+        using (var seedContext = new RetailDbContext(_options))
+        {
+            var invoice = new SaleInvoice(
+                saleId,
+                "INV-20260914-000077",
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                PricingModel.TaxInclusive,
+                Money.FromMinorUnits(10000),
+                Money.Zero(),
+                Money.Zero(),
+                Money.FromMinorUnits(10000),
+                Money.Zero(),
+                Money.Zero(),
+                Money.FromMinorUnits(10000));
+
+            var item = new SaleItem(
+                saleItemId,
+                saleId,
+                productId,
+                "PRECISION-SKU",
+                "Precision Product",
+                Quantity.From(1, UnitOfMeasure.Piece),
+                Money.FromMinorUnits(10000),
+                Money.FromMinorUnits(6000),
+                Money.FromMinorUnits(10000),
+                Money.Zero(),
+                29.625m, // Exact sum of component rates
+                Money.FromMinorUnits(10000),
+                Money.Zero(),
+                Money.FromMinorUnits(10000));
+
+            item.AddTaxComponent(new SaleItemTaxComponent(20, saleItemId, "CGST", 9.00m, Money.FromMinorUnits(900)));
+            item.AddTaxComponent(new SaleItemTaxComponent(21, saleItemId, "SGST", 18.00m, Money.FromMinorUnits(1800)));
+            item.AddTaxComponent(new SaleItemTaxComponent(22, saleItemId, "CESS", 2.50m, Money.FromMinorUnits(250)));
+            item.AddTaxComponent(new SaleItemTaxComponent(23, saleItemId, "SPECIAL", 0.125m, Money.FromMinorUnits(12)));
+
+            invoice.AddItem(item);
+            seedContext.SalesInvoices.Add(invoice);
+            await seedContext.SaveChangesAsync();
+        }
+
+        // Verify exact roundtrip from SQLite TEXT storage back to C# decimal
+        using (var verifyContext = new RetailDbContext(_options))
+        {
+            var item = await verifyContext.SalesItems
+                .Include(i => i.TaxComponents)
+                .FirstAsync(i => i.Id == saleItemId);
+
+            Assert.Equal(29.625m, item.TaxRatePercentage);
+
+            var cgst = item.TaxComponents.First(c => c.ComponentName == "CGST");
+            Assert.Equal(9.00m, cgst.RatePercentage);
+
+            var sgst = item.TaxComponents.First(c => c.ComponentName == "SGST");
+            Assert.Equal(18.00m, sgst.RatePercentage);
+
+            var cess = item.TaxComponents.First(c => c.ComponentName == "CESS");
+            Assert.Equal(2.50m, cess.RatePercentage);
+
+            var special = item.TaxComponents.First(c => c.ComponentName == "SPECIAL");
+            Assert.Equal(0.125m, special.RatePercentage);
+        }
+    }
+
+    [Fact]
     public async Task SqliteInvoiceSequenceConcurrencyTests_TenConcurrentAllocations_GenerateUniqueSequentials()
     {
         var numbers = new System.Collections.Concurrent.ConcurrentBag<string>();
