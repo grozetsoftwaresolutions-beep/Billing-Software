@@ -91,6 +91,28 @@ public sealed class EfSaleRepository : ISaleRepository
     {
         await _context.SalesInvoices.AddAsync(sale, cancellationToken);
     }
+
+    public async Task<int> IncrementReprintCountAsync(Guid saleInvoiceId, DateTime reprintedAtUtc, CancellationToken cancellationToken = default)
+    {
+        var isoTime = reprintedAtUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+        var rows = await _context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE sales_invoices SET ReprintCount = ReprintCount + 1, LastReprintedAtUtc = {isoTime} WHERE Id = {saleInvoiceId};",
+            cancellationToken);
+
+        var local = _context.SalesInvoices.Local.FirstOrDefault(s => s.Id == saleInvoiceId);
+        if (local != null)
+        {
+            await _context.Entry(local).ReloadAsync(cancellationToken);
+        }
+
+        return rows;
+    }
+
+    public Task UpdateAsync(SaleInvoice sale, CancellationToken cancellationToken = default)
+    {
+        _context.SalesInvoices.Update(sale);
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class EfSaleRefundRepository : ISaleRefundRepository

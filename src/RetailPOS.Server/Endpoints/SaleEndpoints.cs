@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using RetailPOS.Application.Services;
 using RetailPOS.Contracts.Common;
+using RetailPOS.Contracts.Hardware;
 using RetailPOS.Contracts.Sales;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Server.Middleware;
@@ -141,6 +142,118 @@ public static class SaleEndpoints
         .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
         .WithName("GetSaleRefunds")
         .WithSummary("Gets all refunds issued against a sale invoice.");
+
+        // --- PHASE 10 HARDWARE PRINT & REPRINT LIFECYCLE ---
+
+        // Direct Server-Side Print
+        group.MapPost("/{id:guid}/print", async (
+            Guid id,
+            HttpContext httpContext,
+            IReceiptService receiptService,
+            CancellationToken ct) =>
+        {
+            var cashierId = (Guid)httpContext.Items["CurrentUserId"]!;
+            var terminalId = httpContext.Items.TryGetValue(TerminalValidationMiddleware.ValidatedTerminalIdItemKey, out var tidObj) && tidObj is Guid tid
+                ? tid
+                : (httpContext.Items.TryGetValue("CurrentSessionTerminalId", out var sidObj) && sidObj is Guid sid ? sid : Guid.Empty);
+
+            var result = await receiptService.PrintDirectSaleReceiptAsync(id, terminalId, cashierId, isReprint: false, ct);
+            return Results.Ok(ApiResponse.Ok(result));
+        })
+        .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
+        .WithName("PrintSaleReceipt")
+        .WithSummary("Generates and prints receipt for a sale invoice.");
+
+        // Direct Server-Side Reprint
+        group.MapPost("/{id:guid}/reprint", async (
+            Guid id,
+            HttpContext httpContext,
+            IReceiptService receiptService,
+            CancellationToken ct) =>
+        {
+            var cashierId = (Guid)httpContext.Items["CurrentUserId"]!;
+            var terminalId = httpContext.Items.TryGetValue(TerminalValidationMiddleware.ValidatedTerminalIdItemKey, out var tidObj) && tidObj is Guid tid
+                ? tid
+                : (httpContext.Items.TryGetValue("CurrentSessionTerminalId", out var sidObj) && sidObj is Guid sid ? sid : Guid.Empty);
+
+            var result = await receiptService.PrintDirectSaleReceiptAsync(id, terminalId, cashierId, isReprint: true, ct);
+            return Results.Ok(ApiResponse.Ok(result));
+        })
+        .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
+        .WithName("ReprintSaleReceipt")
+        .WithSummary("Generates and prints a marked reprint receipt, incrementing reprint counter upon success.");
+
+        // Two-Phase Reprint: Step 1 - Generate Payload
+        group.MapPost("/{id:guid}/reprint-payload", async (
+            Guid id,
+            HttpContext httpContext,
+            IReceiptService receiptService,
+            ISalesService salesService,
+            CancellationToken ct) =>
+        {
+            var terminalId = httpContext.Items.TryGetValue(TerminalValidationMiddleware.ValidatedTerminalIdItemKey, out var tidObj) && tidObj is Guid tid
+                ? tid
+                : (httpContext.Items.TryGetValue("CurrentSessionTerminalId", out var sidObj) && sidObj is Guid sid ? sid : Guid.Empty);
+
+            var invoiceResult = await salesService.GetSaleByIdAsync(id, ct);
+            if (!invoiceResult.Success || invoiceResult.Data == null)
+            {
+                return Results.NotFound(ApiResponse.Fail<RenderedReceiptPayloadDto>("Sale invoice not found.", "SALE_NOT_FOUND"));
+            }
+
+            var payload = await receiptService.GenerateSaleReceiptPayloadAsync(id, terminalId, isReprint: true, ct);
+            var dto = new RenderedReceiptPayloadDto(
+                id,
+                invoiceResult.Data.InvoiceNumber,
+                payload.RawBytes,
+                payload.AsciiPreview,
+                payload.PendingReprintCount);
+
+            return Results.Ok(ApiResponse.Ok(dto));
+        })
+        .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
+        .WithName("GenerateReprintPayload")
+        .WithSummary("Renders ESC/POS reprint payload with watermark without incrementing reprint count.");
+
+        // Two-Phase Reprint: Step 2A - Confirm Print Success
+        group.MapPost("/{id:guid}/confirm-reprint", async (
+            Guid id,
+            ConfirmReprintRequest? request,
+            HttpContext httpContext,
+            IReceiptService receiptService,
+            CancellationToken ct) =>
+        {
+            var userId = (Guid)httpContext.Items["CurrentUserId"]!;
+            var terminalId = httpContext.Items.TryGetValue(TerminalValidationMiddleware.ValidatedTerminalIdItemKey, out var tidObj) && tidObj is Guid tid
+                ? tid
+                : (httpContext.Items.TryGetValue("CurrentSessionTerminalId", out var sidObj) && sidObj is Guid sid ? sid : Guid.Empty);
+
+            var result = await receiptService.ConfirmReprintAsync(id, terminalId, userId, request?.Reason, ct);
+            return Results.Ok(ApiResponse.Ok(result));
+        })
+        .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
+        .WithName("ConfirmReprint")
+        .WithSummary("Confirms physical print completion, atomically increments ReprintCount, and writes audit record.");
+
+        // Two-Phase Reprint: Step 2B - Report Print Failed
+        group.MapPost("/{id:guid}/report-reprint-failed", async (
+            Guid id,
+            ReportReprintFailedRequest request,
+            HttpContext httpContext,
+            IReceiptService receiptService,
+            CancellationToken ct) =>
+        {
+            var userId = (Guid)httpContext.Items["CurrentUserId"]!;
+            var terminalId = httpContext.Items.TryGetValue(TerminalValidationMiddleware.ValidatedTerminalIdItemKey, out var tidObj) && tidObj is Guid tid
+                ? tid
+                : (httpContext.Items.TryGetValue("CurrentSessionTerminalId", out var sidObj) && sidObj is Guid sid ? sid : Guid.Empty);
+
+            var result = await receiptService.ReportReprintFailedAsync(id, terminalId, userId, request.ErrorMessage, ct);
+            return Results.Ok(ApiResponse.Ok(result));
+        })
+        .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
+        .WithName("ReportReprintFailed")
+        .WithSummary("Reports print I/O failure, logs audit event, and leaves ReprintCount unchanged.");
 
         return endpoints;
     }

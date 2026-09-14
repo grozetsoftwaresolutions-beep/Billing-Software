@@ -764,7 +764,65 @@ CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_payment_id ON cash_sessi
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // 11. PRAGMA integrity and foreign key checks
+        // 11. Ensure Phase 10 Hardware Integration schema exists
+        // 11a. Check sales_invoices columns for ReprintCount and LastReprintedAtUtc
+        cmd.CommandText = "PRAGMA table_info(sales_invoices);";
+        var invColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                invColumns.Add(reader.GetString(1));
+            }
+        }
+        if (invColumns.Count > 0)
+        {
+            if (!invColumns.Contains("ReprintCount"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_invoices ADD COLUMN ReprintCount INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!invColumns.Contains("LastReprintedAtUtc"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_invoices ADD COLUMN LastReprintedAtUtc TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        // 11b. Ensure terminal_hardware_configs table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS terminal_hardware_configs (
+    TerminalId TEXT PRIMARY KEY REFERENCES terminals(Id) ON DELETE CASCADE,
+    PrinterConnectionType INTEGER NOT NULL DEFAULT 0,
+    PrinterNameOrAddress TEXT(255) NOT NULL DEFAULT 'SimulatedPrinter',
+    PaperWidth INTEGER NOT NULL DEFAULT 80,
+    PrinterEncoding INTEGER NOT NULL DEFAULT 0,
+    PrinterCodePage INTEGER NOT NULL DEFAULT 0,
+    PrinterTimeoutMs INTEGER NOT NULL DEFAULT 5000,
+    AutoCut INTEGER NOT NULL DEFAULT 1,
+    OpenDrawerOnCashSale INTEGER NOT NULL DEFAULT 1,
+    DrawerConnectionType INTEGER NOT NULL DEFAULT 0,
+    DrawerKickPin INTEGER NOT NULL DEFAULT 0,
+    DrawerPulseOnMs INTEGER NOT NULL DEFAULT 50,
+    DrawerPulseOffMs INTEGER NOT NULL DEFAULT 500,
+    ScannerMaxInterKeyMs INTEGER NOT NULL DEFAULT 35,
+    ScaleConnectionType INTEGER NOT NULL DEFAULT 0,
+    ScalePortName TEXT(50) NULL,
+    ScaleBaudRate INTEGER NOT NULL DEFAULT 9600,
+    ScaleDataBits INTEGER NOT NULL DEFAULT 8,
+    ScaleParity INTEGER NOT NULL DEFAULT 0,
+    ScaleStopBits INTEGER NOT NULL DEFAULT 1,
+    ScaleProtocol INTEGER NOT NULL DEFAULT 0,
+    ScaleTimeoutMs INTEGER NOT NULL DEFAULT 2000,
+    IsScaleEnabled INTEGER NOT NULL DEFAULT 0,
+    CreatedAtUtc TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_terminal_hardware_configs_terminal_id ON terminal_hardware_configs(TerminalId);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 12. PRAGMA integrity and foreign key checks
         cmd.CommandText = "PRAGMA foreign_key_check;";
         using (var fkReader = await cmd.ExecuteReaderAsync(cancellationToken))
         {

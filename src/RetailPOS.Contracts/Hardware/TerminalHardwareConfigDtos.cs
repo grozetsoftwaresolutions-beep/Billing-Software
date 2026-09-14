@@ -1,0 +1,53 @@
+using RetailPOS.Domain.Enums;
+
+namespace RetailPOS.Contracts.Hardware;
+
+public sealed record TerminalHardwareConfigDto(
+    Guid TerminalId,
+    PrinterConnectionType PrinterConnectionType,
+    string PrinterNameOrAddress,
+    PaperWidth PaperWidth,
+    PrinterEncoding PrinterEncoding,
+    int PrinterCodePage,
+    int PrinterTimeoutMs,
+    bool AutoCut,
+    bool OpenDrawerOnCashSale,
+    DrawerConnectionType DrawerConnectionType,
+    int DrawerKickPin,
+    int DrawerPulseOnMs,
+    int DrawerPulseOffMs,
+    int ScannerMaxInterKeyMs,
+    ScaleConnectionType ScaleConnectionType,
+    string? ScalePortName,
+    int ScaleBaudRate,
+    int ScaleDataBits,
+    int ScaleParity,
+    int ScaleStopBits,
+    ScaleProtocol ScaleProtocol,
+    int ScaleTimeoutMs,
+    bool IsScaleEnabled,
+    DateTime UpdatedAtUtc);
+
+public sealed record UpdateTerminalHardwareConfigRequest(
+    PrinterConnectionType? PrinterConnectionType = null,
+    string? PrinterNameOrAddress = null,
+    PaperWidth? PaperWidth = null,
+    PrinterEncoding? PrinterEncoding = null,
+    int? PrinterCodePage = null,
+    int? PrinterTimeoutMs = null,
+    bool? AutoCut = null,
+    bool? OpenDrawerOnCashSale = null,
+    DrawerConnectionType? DrawerConnectionType = null,
+    int? DrawerKickPin = null,
+    int? DrawerPulseOnMs = null,
+    int? DrawerPulseOffMs = null,
+    int? ScannerMaxInterKeyMs = null,
+    ScaleConnectionType? ScaleConnectionType = null,
+    string? ScalePortName = null,
+    int? ScaleBaudRate = null,
+    int? ScaleDataBits = null,
+    int? ScaleParity = null,
+    int? ScaleStopBits = null,
+    ScaleProtocol? ScaleProtocol = null,
+    int? ScaleTimeoutMs = null,
+    bool? IsScaleEnabled = null);

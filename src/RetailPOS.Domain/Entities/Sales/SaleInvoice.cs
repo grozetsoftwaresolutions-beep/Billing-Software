@@ -13,6 +13,8 @@ public sealed class SaleInvoice : BaseEntity<Guid>
     public Guid? CustomerId { get; private set; }
     public PricingModel PricingModel { get; private set; }
     public SaleStatus Status { get; private set; }
+    public int ReprintCount { get; private set; }
+    public DateTime? LastReprintedAtUtc { get; private set; }
 
     public Money GrossSubtotal { get; private set; }
     public Money TotalLineDiscounts { get; private set; }
@@ -108,6 +110,13 @@ public sealed class SaleInvoice : BaseEntity<Guid>
     public void MarkRefunded(bool partial = false)
     {
         Status = partial ? SaleStatus.PartiallyRefunded : SaleStatus.Refunded;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void RecordReprint()
+    {
+        ReprintCount++;
+        LastReprintedAtUtc = DateTime.UtcNow;
         UpdatedAtUtc = DateTime.UtcNow;
     }
 }

@@ -15,5 +15,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
     <ProjectReference Include="..\..\src\RetailPOS.Client\RetailPOS.Client.csproj" />
+    <ProjectReference Include="..\..\src\RetailPOS.Domain\RetailPOS.Domain.csproj" />
   </ItemGroup>
 </Project>

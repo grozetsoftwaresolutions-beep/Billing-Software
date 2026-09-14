@@ -782,6 +782,13 @@ public sealed class SalesService : ISalesService
             p.ChangeAmount.MinorUnits,
             p.ReferenceNumber)).ToList();
 
+        var cashPayments = s.Payments.Where(p => p.Method == PaymentMethod.Cash && p.Amount.MinorUnits > 0).ToList();
+        var hasCash = cashPayments.Count > 0;
+        var drawerKick = new RetailPOS.Contracts.Hardware.DrawerKickDirective(
+            hasCash,
+            hasCash ? (s.Payments.Count > 1 ? "MIXED_CASH_SALE" : "CASH_SALE") : null,
+            hasCash ? cashPayments.Sum(p => p.Amount.MinorUnits) : null);
+
         return new SaleInvoiceDto(
             s.Id,
             s.InvoiceNumber,
@@ -800,7 +807,10 @@ public sealed class SalesService : ISalesService
             s.RoundingAdjustment.MinorUnits,
             s.FinalPayable.MinorUnits,
             itemDtos,
-            paymentDtos);
+            paymentDtos,
+            s.ReprintCount,
+            s.LastReprintedAtUtc,
+            drawerKick);
     }
 
     private static SaleRefundDto MapRefundToDto(SaleRefund r, string invoiceNumber)
@@ -813,6 +823,12 @@ public sealed class SalesService : ISalesService
             i.QuantityRefunded.Value,
             i.RefundAmount.MinorUnits,
             i.TaxRefundAmount.MinorUnits)).ToList();
+
+        var isCash = r.RefundMethod == PaymentMethod.Cash && r.TotalRefundAmount.MinorUnits > 0;
+        var drawerKick = new RetailPOS.Contracts.Hardware.DrawerKickDirective(
+            isCash,
+            isCash ? "CASH_REFUND" : null,
+            isCash ? r.TotalRefundAmount.MinorUnits : null);
 
         return new SaleRefundDto(
             r.Id,
@@ -827,6 +843,7 @@ public sealed class SalesService : ISalesService
             r.TotalRefundAmount.MinorUnits,
             r.Reason,
             r.CreatedAtUtc,
-            itemDtos);
+            itemDtos,
+            drawerKick);
     }
 }

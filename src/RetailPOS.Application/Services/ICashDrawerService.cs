@@ -1,0 +1,61 @@
+using RetailPOS.Application.Hardware;
+using RetailPOS.Application.Persistence;
+using RetailPOS.Contracts.Hardware;
+using RetailPOS.Domain.Entities.Sales;
+using RetailPOS.Domain.Enums;
+
+namespace RetailPOS.Application.Services;
+
+public interface ICashDrawerService
+{
+    DrawerKickDirective EvaluateSaleDrawerKick(SaleInvoice invoice);
+    DrawerKickDirective EvaluateRefundDrawerKick(SaleRefund refund);
+    Task<DrawerKickResponseDto> TriggerDrawerKickAsync(Guid terminalId, Guid userId, string reason, bool isManualOpen = false, CancellationToken cancellationToken = default);
+}
+
+public sealed class CashDrawerService : ICashDrawerService
+{
+    private readonly ICashDrawer _drawer;
+    private readonly IAuditLogRepository _auditRepo;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public CashDrawerService(
+        ICashDrawer drawer,
+        IAuditLogRepository auditRepo,
+        IUnitOfWork unitOfWork)
+    {
+        _drawer = drawer;
+        _auditRepo = auditRepo;
+        _unitOfWork = unitOfWork;
+    }
+
+    public DrawerKickDirective EvaluateSaleDrawerKick(SaleInvoice invoice)
+    {
+        var cashPayments = invoice.Payments.Where(p => p.Method == PaymentMethod.Cash && p.Amount.MinorUnits > 0).ToList();
+        var hasCash = cashPayments.Count > 0;
+        var cashAmount = hasCash ? cashPayments.Sum(p => p.Amount.MinorUnits) : (long?)null;
+        var reason = hasCash ? (invoice.Payments.Count > 1 ? "MIXED_CASH_SALE" : "CASH_SALE") : null;
+        return new DrawerKickDirective(hasCash, reason, cashAmount);
+    }
+
+    public DrawerKickDirective EvaluateRefundDrawerKick(SaleRefund refund)
+    {
+        var isCash = refund.RefundMethod == PaymentMethod.Cash && refund.TotalRefundAmount.MinorUnits > 0;
+        return new DrawerKickDirective(isCash, isCash ? "CASH_REFUND" : null, isCash ? refund.TotalRefundAmount.MinorUnits : null);
+    }
+
+    public async Task<DrawerKickResponseDto> TriggerDrawerKickAsync(
+        Guid terminalId,
+        Guid userId,
+        string reason,
+        bool isManualOpen = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _drawer.OpenDrawerAsync(reason, cancellationToken);
+        var action = isManualOpen ? "DRAWER_OPENED_MANUALLY" : (result.Success ? "DRAWER_TEST_KICK" : "DRAWER_KICK_FAILED");
+        var details = $"[Terminal:{terminalId}] Drawer open '{reason}' via {result.DrawerType}" + (result.Success ? "" : $": {result.ErrorMessage}");
+
+        await _auditRepo.RecordAsync("Terminal", action, userId.ToString(), details, cancellationToken);
+        return new DrawerKickResponseDto(result.Success, result.DrawerType, result.ErrorMessage, DateTime.UtcNow);
+    }
+}

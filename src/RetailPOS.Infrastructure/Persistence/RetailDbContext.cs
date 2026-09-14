@@ -41,6 +41,7 @@ public class RetailDbContext : DbContext
     public DbSet<CustomerPayment> CustomerPayments => Set<CustomerPayment>();
     public DbSet<CashSession> CashSessions => Set<CashSession>();
     public DbSet<CashSessionTransaction> CashSessionTransactions => Set<CashSessionTransaction>();
+    public DbSet<RetailPOS.Domain.Entities.Hardware.TerminalHardwareConfig> TerminalHardwareConfigs => Set<RetailPOS.Domain.Entities.Hardware.TerminalHardwareConfig>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<InvoiceSequence> InvoiceSequences => Set<InvoiceSequence>();
 

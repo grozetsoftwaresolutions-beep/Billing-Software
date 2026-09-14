@@ -59,7 +59,8 @@ public sealed record CustomerPaymentDto(
     Guid ClientTransactionId,
     string? Notes,
     Guid CreatedByUserId,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    RetailPOS.Contracts.Hardware.DrawerKickDirective? DrawerKick = null);
 
 public sealed record CustomerLedgerEntryDto(
     DateTime TimestampUtc,

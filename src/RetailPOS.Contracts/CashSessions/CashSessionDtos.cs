@@ -59,7 +59,8 @@ public sealed record CashSessionTransactionDto(
     DateTime TimestampUtc,
     Guid? SaleInvoiceId = null,
     Guid? RefundId = null,
-    Guid? CustomerPaymentId = null);
+    Guid? CustomerPaymentId = null,
+    RetailPOS.Contracts.Hardware.DrawerKickDirective? DrawerKick = null);
 
 public sealed record CashSessionReportDto(
     CashSessionDto Session,

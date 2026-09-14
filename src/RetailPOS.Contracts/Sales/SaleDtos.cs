@@ -95,7 +95,10 @@ public sealed record SaleInvoiceDto(
     long RoundingAdjustmentPaise,
     long FinalPayablePaise,
     IReadOnlyList<SaleItemDto> Items,
-    IReadOnlyList<PaymentRecordDto> Payments);
+    IReadOnlyList<PaymentRecordDto> Payments,
+    int ReprintCount = 0,
+    DateTime? LastReprintedAtUtc = null,
+    RetailPOS.Contracts.Hardware.DrawerKickDirective? DrawerKick = null);
 
 public sealed record SaleSummaryDto(
     Guid Id,
@@ -141,4 +144,5 @@ public sealed record SaleRefundDto(
     long TotalRefundAmountPaise,
     string Reason,
     DateTime CreatedAtUtc,
-    IReadOnlyList<SaleRefundItemDto> Items);
+    IReadOnlyList<SaleRefundItemDto> Items,
+    RetailPOS.Contracts.Hardware.DrawerKickDirective? DrawerKick = null);

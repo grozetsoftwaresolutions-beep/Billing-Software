@@ -6,11 +6,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using RetailPOS.Application.Hardware;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Security;
 using RetailPOS.Application.Services;
 using RetailPOS.Domain.Services;
 using RetailPOS.Infrastructure.Backup;
+using RetailPOS.Infrastructure.Hardware;
 using RetailPOS.Infrastructure.Persistence;
 using RetailPOS.Infrastructure.Persistence.Repositories;
 using RetailPOS.Infrastructure.Security;
@@ -87,6 +89,7 @@ builder.Services.AddScoped<ISupplierRepository, EfSupplierRepository>();
 builder.Services.AddScoped<IPurchaseRepository, EfPurchaseRepository>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
 builder.Services.AddScoped<ICashSessionRepository, EfCashSessionRepository>();
+builder.Services.AddScoped<ITerminalHardwareConfigRepository, TerminalHardwareConfigRepository>();
 
 // Register cryptographic security and session management
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -110,6 +113,18 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICashSessionService, CashSessionService>();
 builder.Services.AddScoped<IReportRepository, EfReportRepository>();
 builder.Services.AddScoped<IReportService, ReportService>();
+
+// Phase 10 Hardware Services and Hardware Adapters (Simulated for default server environment)
+builder.Services.AddScoped<ITerminalHardwareConfigService, TerminalHardwareConfigService>();
+builder.Services.AddScoped<IReceiptService, ReceiptService>();
+builder.Services.AddScoped<ICashDrawerService, CashDrawerService>();
+builder.Services.AddScoped<IBarcodeScannerService, BarcodeScannerService>();
+builder.Services.AddScoped<IWeighingScaleService, WeighingScaleService>();
+
+builder.Services.AddSingleton<IReceiptPrinter, SimulatedReceiptPrinter>();
+builder.Services.AddSingleton<ICashDrawer, SimulatedCashDrawer>();
+builder.Services.AddSingleton<IWeighingScale, SimulatedWeighingScale>();
+builder.Services.AddSingleton<IScaleProtocolParser, GenericAsciiScaleParser>();
 
 // Register infrastructure services
 builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>();
@@ -150,6 +165,10 @@ app.MapCashSessionEndpoints();
 
 // Phase 9 Reports & Analytics endpoints
 app.MapReportEndpoints();
+
+// Phase 10 Hardware and Terminal Configuration endpoints
+app.MapTerminalHardwareConfigEndpoints();
+app.MapHardwareEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())

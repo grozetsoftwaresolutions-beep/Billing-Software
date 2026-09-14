@@ -1,4 +1,4 @@
-﻿using RetailPOS.Contracts.Sales;
+using RetailPOS.Contracts.Sales;
 using RetailPOS.Domain.Entities.Sales;
 
 namespace RetailPOS.Application.Persistence;
@@ -10,6 +10,8 @@ public interface ISaleRepository
     Task<SaleInvoice?> GetByClientTransactionIdAsync(Guid clientTransactionId, CancellationToken cancellationToken = default);
     Task<(IReadOnlyList<SaleInvoice> Items, int TotalCount)> SearchAsync(SaleSearchRequest request, CancellationToken cancellationToken = default);
     Task AddAsync(SaleInvoice sale, CancellationToken cancellationToken = default);
+    Task UpdateAsync(SaleInvoice sale, CancellationToken cancellationToken = default);
+    Task<int> IncrementReprintCountAsync(Guid saleInvoiceId, DateTime reprintedAtUtc, CancellationToken cancellationToken = default);
 }
 
 public interface ISaleRefundRepository
