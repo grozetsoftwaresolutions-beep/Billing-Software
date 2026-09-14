@@ -83,6 +83,8 @@ builder.Services.AddScoped<ICategoryRepository, EfCategoryRepository>();
 builder.Services.AddScoped<ISaleRepository, EfSaleRepository>();
 builder.Services.AddScoped<ISaleRefundRepository, EfSaleRefundRepository>();
 builder.Services.AddScoped<IInvoiceSequenceRepository, EfInvoiceSequenceRepository>();
+builder.Services.AddScoped<ISupplierRepository, EfSupplierRepository>();
+builder.Services.AddScoped<IPurchaseRepository, EfPurchaseRepository>();
 
 // Register cryptographic security and session management
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -100,6 +102,8 @@ builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IStoreService, StoreService>();
 builder.Services.AddScoped<ISalesService, SalesService>();
 builder.Services.AddScoped<IPricingCalculator, PricingCalculator>();
+builder.Services.AddScoped<ISupplierService, SupplierService>();
+builder.Services.AddScoped<IPurchaseService, PurchaseService>();
 
 // Register infrastructure services
 builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>();
@@ -129,6 +133,10 @@ app.MapCategoryEndpoints();
 // Phase 6 Sales, Billing and Store configuration endpoints
 app.MapSaleEndpoints();
 app.MapStoreEndpoints();
+
+// Phase 7 Purchases and Supplier endpoints
+app.MapSupplierEndpoints();
+app.MapPurchaseEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())

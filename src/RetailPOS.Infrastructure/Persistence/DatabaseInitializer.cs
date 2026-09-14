@@ -15,7 +15,7 @@ public static class DatabaseInitializer
         // 2. Apply SQLite runtime pragmas (WAL, foreign keys, busy timeout)
         SqliteConnectionConfigurator.ApplyPragmas(context);
 
-        // 3. Apply schema upgrades if migrating an existing pre-Phase 5 or pre-Phase 6 SQLite database
+        // 3. Apply schema upgrades if migrating an existing pre-Phase 5, pre-Phase 6, or pre-Phase 7 SQLite database
         await UpgradeSchemaIfNeededAsync(context, cancellationToken);
 
         // 4. Seed default tax categories if empty (GST 0%, GST 5%, GST 18%, Exempt)
@@ -114,13 +114,21 @@ public static class DatabaseInitializer
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // Ensure UK_categories_name index exists with NOCASE
-        cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_categories_name ON categories (name COLLATE NOCASE);";
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        // Ensure UK_categories_name index exists with NOCASE if categories table exists
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='categories';";
+        if (await cmd.ExecuteScalarAsync(cancellationToken) != null)
+        {
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_categories_name ON categories (name COLLATE NOCASE);";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
 
-        // Ensure UK_brands_name index exists with NOCASE
-        cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_brands_name ON brands (name COLLATE NOCASE);";
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        // Ensure UK_brands_name index exists with NOCASE if brands table exists
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='brands';";
+        if (await cmd.ExecuteScalarAsync(cancellationToken) != null)
+        {
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_brands_name ON brands (name COLLATE NOCASE);";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
 
         // --- Phase 6 Schema Upgrades ---
 
@@ -210,26 +218,356 @@ CREATE INDEX IF NOT EXISTS IX_sale_refund_items_sale_item_id ON sale_refund_item
         await cmd.ExecuteNonQueryAsync(cancellationToken);
 
         // Check invoice_sequences table for period_date column
-        cmd.CommandText = "PRAGMA table_info(invoice_sequences);";
-        var hasPeriodDate = false;
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='invoice_sequences';";
+        var hasInvoiceSeqTable = await cmd.ExecuteScalarAsync(cancellationToken) != null;
+        if (hasInvoiceSeqTable)
+        {
+            cmd.CommandText = "PRAGMA table_info(invoice_sequences);";
+            var hasPeriodDate = false;
+            using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+            {
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var colName = reader.GetString(1);
+                    if (string.Equals(colName, "period_date", StringComparison.OrdinalIgnoreCase))
+                        hasPeriodDate = true;
+                }
+            }
+
+            if (!hasPeriodDate)
+            {
+                cmd.CommandText = "ALTER TABLE invoice_sequences ADD COLUMN period_date TEXT(8) NOT NULL DEFAULT '';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_invoice_sequences_name_period ON invoice_sequences(sequence_name, period_date);";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // --- Phase 7 Schema Upgrades: Purchases & Suppliers ---
+
+        // 1. Check suppliers table columns
+        cmd.CommandText = "PRAGMA table_info(suppliers);";
+        var supplierCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
         {
             while (await reader.ReadAsync(cancellationToken))
             {
-                var colName = reader.GetString(1);
-                if (string.Equals(colName, "period_date", StringComparison.OrdinalIgnoreCase))
-                    hasPeriodDate = true;
+                supplierCols.Add(reader.GetString(1));
             }
         }
 
-        if (!hasPeriodDate)
+        if (supplierCols.Count > 0)
         {
-            cmd.CommandText = "ALTER TABLE invoice_sequences ADD COLUMN period_date TEXT(8) NOT NULL DEFAULT '';";
+            if (!supplierCols.Contains("Email"))
+            {
+                cmd.CommandText = "ALTER TABLE suppliers ADD COLUMN Email TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!supplierCols.Contains("Address"))
+            {
+                cmd.CommandText = "ALTER TABLE suppliers ADD COLUMN Address TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!supplierCols.Contains("PaymentTermsDays"))
+            {
+                cmd.CommandText = "ALTER TABLE suppliers ADD COLUMN PaymentTermsDays INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!supplierCols.Contains("CreditBalance"))
+            {
+                cmd.CommandText = "ALTER TABLE suppliers ADD COLUMN CreditBalance INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!supplierCols.Contains("Notes"))
+            {
+                cmd.CommandText = "ALTER TABLE suppliers ADD COLUMN Notes TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!supplierCols.Contains("CreatedAtUtc"))
+            {
+                cmd.CommandText = "ALTER TABLE suppliers ADD COLUMN CreatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!supplierCols.Contains("UpdatedAtUtc"))
+            {
+                cmd.CommandText = "ALTER TABLE suppliers ADD COLUMN UpdatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_suppliers_name ON suppliers (Name COLLATE NOCASE);";
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_invoice_sequences_name_period ON invoice_sequences(sequence_name, period_date);";
+        // 2. Check purchase_invoices table columns
+        cmd.CommandText = "PRAGMA table_info(purchase_invoices);";
+        var purchaseCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                purchaseCols.Add(reader.GetString(1));
+            }
+        }
+
+        if (purchaseCols.Count > 0)
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM purchase_invoices;";
+            var purchaseRowCount = Convert.ToInt64(await cmd.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+
+            int resolvedStoreId = 1;
+            string? resolvedUserId = null;
+
+            if (purchaseRowCount > 0)
+            {
+                cmd.CommandText = "SELECT Id FROM stores ORDER BY Id LIMIT 1;";
+                var storeObj = await cmd.ExecuteScalarAsync(cancellationToken);
+                if (storeObj == null)
+                    throw new InvalidOperationException("Cannot migrate legacy purchase invoices: no valid store record exists in database.");
+                resolvedStoreId = Convert.ToInt32(storeObj, CultureInfo.InvariantCulture);
+
+                cmd.CommandText = "PRAGMA table_info(users);";
+                var userCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+                {
+                    while (await reader.ReadAsync(cancellationToken))
+                        userCols.Add(reader.GetString(1));
+                }
+
+                if (userCols.Contains("IsActive"))
+                    cmd.CommandText = "SELECT Id FROM users WHERE IsActive = 1 LIMIT 1;";
+                else if (userCols.Contains("Status"))
+                    cmd.CommandText = "SELECT Id FROM users WHERE Status = 1 LIMIT 1;";
+                else
+                    cmd.CommandText = "SELECT Id FROM users LIMIT 1;";
+
+                var userObj = await cmd.ExecuteScalarAsync(cancellationToken);
+                if (userObj == null)
+                {
+                    cmd.CommandText = "SELECT Id FROM users LIMIT 1;";
+                    userObj = await cmd.ExecuteScalarAsync(cancellationToken);
+                }
+                if (userObj == null)
+                    throw new InvalidOperationException("Cannot migrate legacy purchase invoices: no valid user record exists in database.");
+                resolvedUserId = userObj.ToString();
+            }
+            else
+            {
+                cmd.CommandText = "SELECT Id FROM stores ORDER BY Id LIMIT 1;";
+                var storeObj = await cmd.ExecuteScalarAsync(cancellationToken);
+                if (storeObj != null) resolvedStoreId = Convert.ToInt32(storeObj, CultureInfo.InvariantCulture);
+
+                cmd.CommandText = "SELECT Id FROM users LIMIT 1;";
+                var userObj = await cmd.ExecuteScalarAsync(cancellationToken);
+                resolvedUserId = userObj?.ToString() ?? Guid.NewGuid().ToString();
+            }
+
+            if (!purchaseCols.Contains("StoreId"))
+            {
+                cmd.CommandText = $"ALTER TABLE purchase_invoices ADD COLUMN StoreId INTEGER NOT NULL DEFAULT {resolvedStoreId};";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("SupplierInvoiceNumber"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN SupplierInvoiceNumber TEXT NOT NULL DEFAULT '';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+                cmd.CommandText = "UPDATE purchase_invoices SET SupplierInvoiceNumber = InvoiceNumber WHERE SupplierInvoiceNumber = '';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("InvoiceDate"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN InvoiceDate TEXT NOT NULL DEFAULT '2026-01-01';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("ReceivedDateUtc"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN ReceivedDateUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("CreditOffsetAmount"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN CreditOffsetAmount INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("AmountPaid"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN AmountPaid INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("BalanceDue"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN BalanceDue INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+                cmd.CommandText = "UPDATE purchase_invoices SET BalanceDue = GrandTotal WHERE BalanceDue = 0 AND GrandTotal > 0 AND AmountPaid = 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("PaymentStatus"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN PaymentStatus INTEGER NOT NULL DEFAULT 1;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("ClientTransactionId"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN ClientTransactionId TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("CancellationClientTransactionId"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN CancellationClientTransactionId TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("CancellationReason"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN CancellationReason TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("Notes"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN Notes TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("CreatedByUserId"))
+            {
+                cmd.CommandText = $"ALTER TABLE purchase_invoices ADD COLUMN CreatedByUserId TEXT NOT NULL DEFAULT '{resolvedUserId}';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("CreatedAtUtc"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN CreatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!purchaseCols.Contains("UpdatedAtUtc"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_invoices ADD COLUMN UpdatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_purchase_invoices_client_tx ON purchase_invoices (ClientTransactionId) WHERE ClientTransactionId IS NOT NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_purchase_invoices_cancel_tx ON purchase_invoices (CancellationClientTransactionId) WHERE CancellationClientTransactionId IS NOT NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 3. Check purchase_items table columns
+        cmd.CommandText = "PRAGMA table_info(purchase_items);";
+        var itemCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                itemCols.Add(reader.GetString(1));
+            }
+        }
+
+        if (itemCols.Count > 0)
+        {
+            if (!itemCols.Contains("ProductSku"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_items ADD COLUMN ProductSku TEXT NOT NULL DEFAULT '';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!itemCols.Contains("ProductName"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_items ADD COLUMN ProductName TEXT NOT NULL DEFAULT '';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!itemCols.Contains("UnitOfMeasure"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_items ADD COLUMN UnitOfMeasure TEXT NOT NULL DEFAULT 'PC';";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!itemCols.Contains("BatchNumber"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_items ADD COLUMN BatchNumber TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!itemCols.Contains("ExpiryDate"))
+            {
+                cmd.CommandText = "ALTER TABLE purchase_items ADD COLUMN ExpiryDate TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Backfill snapshot columns for any items missing SKU or ProductName
+            cmd.CommandText = @"
+                UPDATE purchase_items 
+                SET ProductSku = COALESCE((SELECT SKU FROM products WHERE products.Id = purchase_items.ProductId), 'LEGACY'),
+                    ProductName = COALESCE((SELECT Name FROM products WHERE products.Id = purchase_items.ProductId), 'Legacy Item'),
+                    UnitOfMeasure = COALESCE((SELECT UnitOfMeasure FROM products WHERE products.Id = purchase_items.ProductId), 'PC')
+                WHERE ProductSku = '' OR ProductName = '';
+            ";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 4. Ensure purchase_item_tax_components table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS purchase_item_tax_components (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    PurchaseItemId INTEGER NOT NULL REFERENCES purchase_items(Id) ON DELETE CASCADE,
+    ComponentName TEXT(50) NOT NULL,
+    RatePercentage TEXT NOT NULL,
+    TaxAmount INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_purchase_item_tax_components_item_id ON purchase_item_tax_components(PurchaseItemId);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_purchase_item_tax_components_item_component ON purchase_item_tax_components(PurchaseItemId, ComponentName);
+";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 5. Ensure supplier_payments table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS supplier_payments (
+    Id TEXT PRIMARY KEY,
+    StoreId INTEGER NOT NULL REFERENCES stores(Id),
+    SupplierId TEXT NOT NULL REFERENCES suppliers(Id),
+    Type INTEGER NOT NULL,
+    Amount INTEGER NOT NULL,
+    Method INTEGER NOT NULL,
+    ReferenceNumber TEXT(50) NULL,
+    PaymentDateUtc TEXT NOT NULL,
+    ClientTransactionId TEXT NOT NULL,
+    CreatedByUserId TEXT NOT NULL REFERENCES users(Id),
+    Notes TEXT(500) NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_supplier_payments_client_tx ON supplier_payments(ClientTransactionId);
+CREATE INDEX IF NOT EXISTS IX_supplier_payments_supplier_id ON supplier_payments(SupplierId);
+CREATE INDEX IF NOT EXISTS IX_supplier_payments_payment_date ON supplier_payments(PaymentDateUtc);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 6. Ensure supplier_payment_allocations table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS supplier_payment_allocations (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    SupplierPaymentId TEXT NOT NULL REFERENCES supplier_payments(Id) ON DELETE CASCADE,
+    PurchaseInvoiceId TEXT NOT NULL REFERENCES purchase_invoices(Id) ON DELETE RESTRICT,
+    AmountAllocated INTEGER NOT NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_supplier_payment_allocations_payment_id ON supplier_payment_allocations(SupplierPaymentId);
+CREATE INDEX IF NOT EXISTS IX_supplier_payment_allocations_invoice_id ON supplier_payment_allocations(PurchaseInvoiceId);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 7. PRAGMA integrity and foreign key checks
+        cmd.CommandText = "PRAGMA foreign_key_check;";
+        using (var fkReader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            if (await fkReader.ReadAsync(cancellationToken))
+            {
+                var fkViolationTable = fkReader.GetString(0);
+                throw new InvalidOperationException($"Foreign key integrity violation detected in table '{fkViolationTable}' during Phase 7 migration.");
+            }
+        }
+
+        cmd.CommandText = "PRAGMA integrity_check;";
+        var integrityResult = (string?)await cmd.ExecuteScalarAsync(cancellationToken);
+        if (!string.Equals(integrityResult, "ok", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Database integrity check failed: {integrityResult}");
+        }
     }
 
     private static decimal ParseQuantityValue(string? raw)

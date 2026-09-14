@@ -6,5 +6,7 @@ public enum PaymentMethod
     Card = 2,
     UPI = 3,
     Mixed = 4,
-    Credit = 5
+    Credit = 5,
+    BankTransfer = 6,
+    Cheque = 7
 }
