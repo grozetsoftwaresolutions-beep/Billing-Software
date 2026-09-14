@@ -499,11 +499,15 @@ CREATE INDEX IF NOT EXISTS IX_sale_refund_items_sale_item_id ON sale_refund_item
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // 4. Ensure purchase_item_tax_components table exists
-        cmd.CommandText = @"
-CREATE TABLE IF NOT EXISTS purchase_item_tax_components (
+        // 4. Ensure purchase_item_tax_components table exists with ON DELETE RESTRICT
+        cmd.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='purchase_item_tax_components';";
+        var taxCompSql = (string?)await cmd.ExecuteScalarAsync(cancellationToken);
+        if (taxCompSql == null)
+        {
+            cmd.CommandText = @"
+CREATE TABLE purchase_item_tax_components (
     Id INTEGER PRIMARY KEY AUTOINCREMENT,
-    PurchaseItemId INTEGER NOT NULL REFERENCES purchase_items(Id) ON DELETE CASCADE,
+    PurchaseItemId INTEGER NOT NULL REFERENCES purchase_items(Id) ON DELETE RESTRICT,
     ComponentName TEXT(50) NOT NULL,
     RatePercentage TEXT NOT NULL,
     TaxAmount INTEGER NOT NULL
@@ -511,7 +515,27 @@ CREATE TABLE IF NOT EXISTS purchase_item_tax_components (
 CREATE INDEX IF NOT EXISTS IX_purchase_item_tax_components_item_id ON purchase_item_tax_components(PurchaseItemId);
 CREATE UNIQUE INDEX IF NOT EXISTS UK_purchase_item_tax_components_item_component ON purchase_item_tax_components(PurchaseItemId, ComponentName);
 ";
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        else if (taxCompSql.Contains("CASCADE", StringComparison.OrdinalIgnoreCase))
+        {
+            cmd.CommandText = @"
+CREATE TABLE purchase_item_tax_components_new (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    PurchaseItemId INTEGER NOT NULL REFERENCES purchase_items(Id) ON DELETE RESTRICT,
+    ComponentName TEXT(50) NOT NULL,
+    RatePercentage TEXT NOT NULL,
+    TaxAmount INTEGER NOT NULL
+);
+INSERT INTO purchase_item_tax_components_new (Id, PurchaseItemId, ComponentName, RatePercentage, TaxAmount)
+SELECT Id, PurchaseItemId, ComponentName, RatePercentage, TaxAmount FROM purchase_item_tax_components;
+DROP TABLE purchase_item_tax_components;
+ALTER TABLE purchase_item_tax_components_new RENAME TO purchase_item_tax_components;
+CREATE INDEX IF NOT EXISTS IX_purchase_item_tax_components_item_id ON purchase_item_tax_components(PurchaseItemId);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_purchase_item_tax_components_item_component ON purchase_item_tax_components(PurchaseItemId, ComponentName);
+";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
 
         // 5. Ensure supplier_payments table exists
         cmd.CommandText = @"

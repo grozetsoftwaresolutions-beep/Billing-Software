@@ -101,7 +101,7 @@ public sealed class PurchaseItemConfiguration : IEntityTypeConfiguration<Purchas
         builder.HasMany(i => i.TaxComponents)
             .WithOne()
             .HasForeignKey(tc => tc.PurchaseItemId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Metadata.FindNavigation(nameof(PurchaseItem.TaxComponents))?.SetPropertyAccessMode(PropertyAccessMode.Field);
     }

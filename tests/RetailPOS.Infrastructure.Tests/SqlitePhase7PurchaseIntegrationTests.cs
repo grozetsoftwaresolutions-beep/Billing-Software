@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using RetailPOS.Application.Persistence;
@@ -720,6 +721,13 @@ public sealed class SqlitePhase7PurchaseIntegrationTests : IDisposable
                     Assert.Equal("PI-LEGACY-01", reader.GetString(2));
                     Assert.Equal("33333333-3333-3333-3333-333333333333", reader.GetString(3));
                 }
+
+                // Verify purchase_item_tax_components table exists and enforces ON DELETE RESTRICT
+                cmd.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='purchase_item_tax_components';";
+                var taxCompTableSql = (string?)await cmd.ExecuteScalarAsync();
+                Assert.NotNull(taxCompTableSql);
+                Assert.Contains("ON DELETE RESTRICT", taxCompTableSql, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("CASCADE", taxCompTableSql, StringComparison.OrdinalIgnoreCase);
             }
         }
         finally
@@ -729,5 +737,314 @@ public sealed class SqlitePhase7PurchaseIntegrationTests : IDisposable
                 try { File.Delete(migrationDbPath); } catch { }
             }
         }
+    }
+
+    [Fact]
+    public async Task CreatePurchase_CreditBalanceConsumedFirst_ThenInitialPayment_ThenRemainingBecomesBalanceDue()
+    {
+        using var context = new RetailDbContext(_options);
+        var (store, user, supplier, product) = await SeedStandardTestDataAsync(context);
+        var (purchaseService, _, _) = CreateServices(context);
+
+        // 1. Supplier starts with CreditBalance = 3,000 paise (Rs 30.00), BalanceDue = 0
+        supplier.IncreaseCreditBalance(Money.FromMinorUnits(3000, Currency.INR));
+        await context.SaveChangesAsync();
+
+        Assert.Equal(3000, supplier.CreditBalance.MinorUnits);
+        Assert.Equal(0, supplier.BalanceDue.MinorUnits);
+
+        // 2. Inward purchase: 1 unit @ 10,000 paise (Rs 100) + 18% GST (CGST 9% = 900, SGST 9% = 900)
+        // Grand Total = 11,800 paise.
+        // Initial payment requested = 5,000 paise (Rs 50.00) via Cash.
+        var req = new CreatePurchaseRequest(
+            supplier.Id,
+            "INV-ORDER-001",
+            DateOnly.FromDateTime(DateTime.UtcNow),
+            [
+                new CreatePurchaseItemRequest(
+                    product.Id,
+                    1m,
+                    10000,
+                    [
+                        new PurchaseTaxComponentInputDto("CGST", 9m),
+                        new PurchaseTaxComponentInputDto("SGST", 9m)
+                    ])
+            ],
+            5000,
+            PaymentMethod.Cash,
+            null,
+            "Credit-offset order verification",
+            Guid.NewGuid());
+
+        var resp = await purchaseService.CreatePurchaseAsync(req, user.Id, user.Username, Guid.NewGuid());
+        Assert.True(resp.Success, resp.ErrorMessage);
+
+        var invoice = resp.Data!;
+        // GrandTotal = 10,000 + 1,800 = 11,800 paise
+        Assert.Equal(10000, invoice.SubtotalPaise);
+        Assert.Equal(1800, invoice.TotalTaxPaise);
+        Assert.Equal(11800, invoice.GrandTotalPaise);
+
+        // Step A: Supplier CreditBalance consumed first -> 3,000 paise
+        Assert.Equal(3000, invoice.CreditOffsetAmountPaise);
+
+        // Step B: Initial payment applied -> 5,000 paise
+        // Total AmountPaid on invoice = CreditOffset (3,000) + InitialPayment (5,000) = 8,000 paise
+        Assert.Equal(8000, invoice.AmountPaidPaise);
+
+        // Step C: Remaining becomes BalanceDue -> 11,800 - 8,000 = 3,800 paise
+        Assert.Equal(3800, invoice.BalanceDuePaise);
+        Assert.Equal(PurchasePaymentStatus.PartiallyPaid, invoice.PaymentStatus);
+
+        // Supplier balances after operation:
+        // CreditBalance: 3,000 - 3,000 = 0 paise
+        // BalanceDue: 0 + 3,800 = 3,800 paise
+        var updatedSupplier = await context.Suppliers.FindAsync(supplier.Id);
+        Assert.NotNull(updatedSupplier);
+        Assert.Equal(0, updatedSupplier.CreditBalance.MinorUnits);
+        Assert.Equal(3800, updatedSupplier.BalanceDue.MinorUnits);
+
+        // Verify initial payment record
+        var payment = await context.SupplierPayments
+            .Include(p => p.Allocations)
+            .FirstOrDefaultAsync(p => p.SupplierId == supplier.Id && p.Type == SupplierPaymentType.Payment);
+        Assert.NotNull(payment);
+        Assert.Equal(5000, payment.Amount.MinorUnits);
+        Assert.Equal(PaymentMethod.Cash, payment.Method);
+        Assert.Single(payment.Allocations);
+        Assert.Equal(invoice.Id, payment.Allocations[0].PurchaseInvoiceId);
+        Assert.Equal(5000, payment.Allocations[0].AmountAllocated.MinorUnits);
+    }
+
+    [Fact]
+    public async Task CancelPurchase_PartiallyPaid_SupplierPayout_ReversesStock_RestoresSupplierBalances_AndPreservesOriginalPaymentsImmutably()
+    {
+        using var context = new RetailDbContext(_options);
+        var (store, user, supplier, product) = await SeedStandardTestDataAsync(context);
+        var (purchaseService, _, _) = CreateServices(context);
+
+        // 1. Inward purchase: 2 units @ 10,000 paise + 18% GST = 23,600 paise
+        // Initial payment: 10,000 paise via Cash. Remaining BalanceDue = 13,600 paise.
+        var pResp = await purchaseService.CreatePurchaseAsync(
+            new CreatePurchaseRequest(
+                supplier.Id,
+                "INV-CANCEL-PART-PAYOUT",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                [
+                    new CreatePurchaseItemRequest(
+                        product.Id,
+                        2m,
+                        10000,
+                        [
+                            new PurchaseTaxComponentInputDto("CGST", 9m),
+                            new PurchaseTaxComponentInputDto("SGST", 9m)
+                        ])
+                ],
+                10000,
+                PaymentMethod.Cash,
+                null,
+                "Partially paid purchase",
+                Guid.NewGuid()),
+            user.Id, user.Username, Guid.NewGuid());
+        Assert.True(pResp.Success);
+        var invoiceId = pResp.Data!.Id;
+
+        // Check pre-cancellation state
+        var preSupplier = await context.Suppliers.FindAsync(supplier.Id);
+        Assert.NotNull(preSupplier);
+        Assert.Equal(13600, preSupplier.BalanceDue.MinorUnits);
+        Assert.Equal(0, preSupplier.CreditBalance.MinorUnits);
+
+        var preStock = await context.StockBalances.FirstOrDefaultAsync(s => s.ProductId == product.Id);
+        Assert.NotNull(preStock);
+        Assert.Equal(2m, preStock.CurrentQuantity.Value);
+
+        var originalPayment = await context.SupplierPayments
+            .Include(p => p.Allocations)
+            .FirstOrDefaultAsync(p => p.SupplierId == supplier.Id && p.Type == SupplierPaymentType.Payment);
+        Assert.NotNull(originalPayment);
+        var originalPaymentId = originalPayment.Id;
+        var originalAllocId = originalPayment.Allocations[0].Id;
+        Assert.Equal(10000, originalPayment.Amount.MinorUnits);
+
+        // 2. Cancel purchase with SupplierPayout (Cash refund from supplier for the 10,000 paise paid)
+        var cancelReq = new CancelPurchaseRequest(
+            "Batch rejected on inspection",
+            RefundSettlementMode.SupplierPayout,
+            PaymentMethod.Cash,
+            null,
+            Guid.NewGuid());
+
+        var cancelResp = await purchaseService.CancelPurchaseAsync(invoiceId, cancelReq, user.Id, user.Username);
+        Assert.True(cancelResp.Success);
+
+        // 3. Verify stock reversal: back to 0
+        var postStock = await context.StockBalances.FirstOrDefaultAsync(s => s.ProductId == product.Id);
+        Assert.NotNull(postStock);
+        Assert.Equal(0m, postStock.CurrentQuantity.Value);
+
+        // Verify stock movement: PurchaseReturn with positive magnitude 2
+        var movements = await context.StockMovements
+            .Where(m => m.ProductId == product.Id && m.MovementType == StockMovementType.PurchaseReturn)
+            .ToListAsync();
+        Assert.Single(movements);
+        Assert.Equal(2m, movements[0].QuantityChanged.Value);
+
+        // 4. Verify supplier balances:
+        // BalanceDue was 13,600, reduced back to 0.
+        // CreditBalance remains 0 (because payout was returned to store).
+        var postSupplier = await context.Suppliers.FindAsync(supplier.Id);
+        Assert.NotNull(postSupplier);
+        Assert.Equal(0, postSupplier.BalanceDue.MinorUnits);
+        Assert.Equal(0, postSupplier.CreditBalance.MinorUnits);
+
+        // 5. Verify refund record created for SupplierPayout:
+        var refundPayment = await context.SupplierPayments
+            .FirstOrDefaultAsync(p => p.SupplierId == supplier.Id && p.Type == SupplierPaymentType.RefundFromSupplier);
+        Assert.NotNull(refundPayment);
+        Assert.Equal(10000, refundPayment.Amount.MinorUnits);
+        Assert.Equal(PaymentMethod.Cash, refundPayment.Method);
+
+        // 6. Verify IMMUTABILITY of original payment and allocation:
+        var reloadedOriginalPayment = await context.SupplierPayments
+            .Include(p => p.Allocations)
+            .FirstOrDefaultAsync(p => p.Id == originalPaymentId);
+        Assert.NotNull(reloadedOriginalPayment);
+        Assert.Equal(10000, reloadedOriginalPayment.Amount.MinorUnits);
+        Assert.Equal(SupplierPaymentType.Payment, reloadedOriginalPayment.Type);
+        Assert.Single(reloadedOriginalPayment.Allocations);
+        Assert.Equal(originalAllocId, reloadedOriginalPayment.Allocations[0].Id);
+        Assert.Equal(10000, reloadedOriginalPayment.Allocations[0].AmountAllocated.MinorUnits);
+    }
+
+    [Fact]
+    public async Task CancelPurchase_PartiallyPaid_StoreCredit_ReversesStock_AdjustsBothBalances_AndPreservesOriginalPaymentsImmutably()
+    {
+        using var context = new RetailDbContext(_options);
+        var (store, user, supplier, product) = await SeedStandardTestDataAsync(context);
+        var (purchaseService, _, _) = CreateServices(context);
+
+        // 1. Inward purchase: 2 units @ 10,000 paise + 18% GST = 23,600 paise
+        // Initial payment: 8,000 paise via Cash. Remaining BalanceDue = 15,600 paise.
+        var pResp = await purchaseService.CreatePurchaseAsync(
+            new CreatePurchaseRequest(
+                supplier.Id,
+                "INV-CANCEL-PART-CREDIT",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                [
+                    new CreatePurchaseItemRequest(
+                        product.Id,
+                        2m,
+                        10000,
+                        [
+                            new PurchaseTaxComponentInputDto("CGST", 9m),
+                            new PurchaseTaxComponentInputDto("SGST", 9m)
+                        ])
+                ],
+                8000,
+                PaymentMethod.Cash,
+                null,
+                "Partially paid for store credit cancellation",
+                Guid.NewGuid()),
+            user.Id, user.Username, Guid.NewGuid());
+        Assert.True(pResp.Success);
+        var invoiceId = pResp.Data!.Id;
+
+        var originalPayment = await context.SupplierPayments
+            .Include(p => p.Allocations)
+            .FirstOrDefaultAsync(p => p.SupplierId == supplier.Id && p.Type == SupplierPaymentType.Payment);
+        Assert.NotNull(originalPayment);
+        var originalPaymentId = originalPayment.Id;
+
+        // 2. Cancel purchase with StoreCredit (retained by supplier as credit for future purchases)
+        var cancelReq = new CancelPurchaseRequest(
+            "Return items for credit note",
+            RefundSettlementMode.StoreCredit,
+            null,
+            null,
+            Guid.NewGuid());
+
+        var cancelResp = await purchaseService.CancelPurchaseAsync(invoiceId, cancelReq, user.Id, user.Username);
+        Assert.True(cancelResp.Success);
+
+        // 3. Stock reversed to 0
+        var postStock = await context.StockBalances.FirstOrDefaultAsync(s => s.ProductId == product.Id);
+        Assert.NotNull(postStock);
+        Assert.Equal(0m, postStock.CurrentQuantity.Value);
+
+        // 4. Supplier balances:
+        // BalanceDue decreased by unpaid invoice balance (15,600) -> 0 paise.
+        // CreditBalance increased by paid invoice amount (8,000) -> 8,000 paise.
+        var postSupplier = await context.Suppliers.FindAsync(supplier.Id);
+        Assert.NotNull(postSupplier);
+        Assert.Equal(0, postSupplier.BalanceDue.MinorUnits);
+        Assert.Equal(8000, postSupplier.CreditBalance.MinorUnits);
+
+        // 5. Original payment is immutable:
+        var reloadedPayment = await context.SupplierPayments
+            .Include(p => p.Allocations)
+            .FirstOrDefaultAsync(p => p.Id == originalPaymentId);
+        Assert.NotNull(reloadedPayment);
+        Assert.Equal(8000, reloadedPayment.Amount.MinorUnits);
+        Assert.Single(reloadedPayment.Allocations);
+        Assert.Equal(8000, reloadedPayment.Allocations[0].AmountAllocated.MinorUnits);
+    }
+
+    [Fact]
+    public async Task PurchaseItemTaxComponent_RestrictDelete_PreventsSilentDeletionWhenPurchaseItemDeleted()
+    {
+        using var context = new RetailDbContext(_options);
+        var (store, user, supplier, product) = await SeedStandardTestDataAsync(context);
+        var (purchaseService, _, _) = CreateServices(context);
+
+        // 1. Inward purchase with tax components
+        var pResp = await purchaseService.CreatePurchaseAsync(
+            new CreatePurchaseRequest(
+                supplier.Id,
+                "INV-RESTRICT-TEST",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                [
+                    new CreatePurchaseItemRequest(
+                        product.Id,
+                        1m,
+                        10000,
+                        [
+                            new PurchaseTaxComponentInputDto("CGST", 9m),
+                            new PurchaseTaxComponentInputDto("SGST", 9m)
+                        ])
+                ],
+                0,
+                null,
+                null,
+                "Restrict FK test",
+                Guid.NewGuid()),
+            user.Id, user.Username, Guid.NewGuid());
+        Assert.True(pResp.Success);
+
+        // 2. Get the purchase item ID and verify tax components exist
+        var item = await context.PurchaseItems.Include(i => i.TaxComponents).FirstOrDefaultAsync(i => i.PurchaseId == pResp.Data!.Id);
+        Assert.NotNull(item);
+        Assert.Equal(2, item.TaxComponents.Count);
+        var itemId = item.Id;
+
+        // 3. Attempt to delete purchase_items row directly while purchase_item_tax_components records reference it
+        using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        await connection.OpenAsync();
+        using var pragmaCmd = connection.CreateCommand();
+        pragmaCmd.CommandText = "PRAGMA foreign_keys = ON;";
+        await pragmaCmd.ExecuteNonQueryAsync();
+
+        using var deleteCmd = connection.CreateCommand();
+        deleteCmd.CommandText = $"DELETE FROM purchase_items WHERE Id = {itemId};";
+
+        // Must fail with foreign key constraint violation (SQLITE_CONSTRAINT_FOREIGNKEY / 19)
+        var ex = await Assert.ThrowsAsync<SqliteException>(() => deleteCmd.ExecuteNonQueryAsync());
+        Assert.Equal(19, ex.SqliteErrorCode);
+
+        // 4. Verify historical tax component records were NOT silently deleted
+        using var verifyCmd = connection.CreateCommand();
+        verifyCmd.CommandText = $"SELECT COUNT(*) FROM purchase_item_tax_components WHERE PurchaseItemId = {itemId};";
+        var count = Convert.ToInt32(await verifyCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+        Assert.Equal(2, count);
     }
 }
