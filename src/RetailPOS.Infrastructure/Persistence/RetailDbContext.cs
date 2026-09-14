@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RetailPOS.Domain.Entities.Audit;
 using RetailPOS.Domain.Entities.Catalog;
+using RetailPOS.Domain.Entities.CashSessions;
 using RetailPOS.Domain.Entities.Configuration;
 using RetailPOS.Domain.Entities.Customers;
 using RetailPOS.Domain.Entities.Inventory;
@@ -37,7 +38,9 @@ public class RetailDbContext : DbContext
     public DbSet<SupplierPayment> SupplierPayments => Set<SupplierPayment>();
     public DbSet<SupplierPaymentAllocation> SupplierPaymentAllocations => Set<SupplierPaymentAllocation>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<CustomerPayment> CustomerPayments => Set<CustomerPayment>();
     public DbSet<CashSession> CashSessions => Set<CashSession>();
+    public DbSet<CashSessionTransaction> CashSessionTransactions => Set<CashSessionTransaction>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<InvoiceSequence> InvoiceSequences => Set<InvoiceSequence>();
 

@@ -1,32 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RetailPOS.Domain.Entities.Audit;
-using RetailPOS.Domain.Entities.Terminals;
-using RetailPOS.Infrastructure.Persistence.Converters;
 
 namespace RetailPOS.Infrastructure.Persistence.Configurations;
-
-public sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSession>
-{
-    public void Configure(EntityTypeBuilder<CashSession> builder)
-    {
-        builder.ToTable("cash_sessions");
-        builder.HasKey(c => c.Id);
-
-        builder.Property(c => c.TerminalId).IsRequired();
-        builder.HasIndex(c => c.TerminalId).HasDatabaseName("IX_cash_sessions_terminal_id");
-
-        builder.Property(c => c.CashierId).IsRequired();
-        builder.HasIndex(c => c.CashierId).HasDatabaseName("IX_cash_sessions_cashier_id");
-
-        builder.Property(c => c.OpenedAtUtc).IsRequired();
-        builder.Property(c => c.OpeningFloat).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER").IsRequired();
-        builder.Property(c => c.ClosingCashCounted).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER");
-        builder.Property(c => c.ExpectedClosingCash).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER");
-
-        builder.Property(c => c.Status).IsRequired();
-    }
-}
 
 public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
 {

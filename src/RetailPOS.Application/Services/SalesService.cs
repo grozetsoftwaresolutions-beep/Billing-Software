@@ -1,3 +1,4 @@
+using RetailPOS.Domain.Entities.Customers;
 using System.Globalization;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Contracts.Catalog;
@@ -27,6 +28,8 @@ public sealed class SalesService : ISalesService
     private readonly IAuditLogRepository _auditRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPricingCalculator _pricingCalculator;
+    private readonly ICustomerRepository? _customerRepo;
+    private readonly ICashSessionRepository? _cashSessionRepo;
 
     public SalesService(
         ISaleRepository saleRepo,
@@ -38,7 +41,9 @@ public sealed class SalesService : ISalesService
         IInvoiceSequenceRepository sequenceRepo,
         IAuditLogRepository auditRepo,
         IUnitOfWork unitOfWork,
-        IPricingCalculator? pricingCalculator = null)
+        IPricingCalculator? pricingCalculator = null,
+        ICustomerRepository? customerRepo = null,
+        ICashSessionRepository? cashSessionRepo = null)
     {
         _saleRepo = saleRepo;
         _refundRepo = refundRepo;
@@ -50,6 +55,8 @@ public sealed class SalesService : ISalesService
         _auditRepo = auditRepo;
         _unitOfWork = unitOfWork;
         _pricingCalculator = pricingCalculator ?? new PricingCalculator();
+        _customerRepo = customerRepo;
+        _cashSessionRepo = cashSessionRepo;
     }
 
     public async Task<ApiResponse<CartCalculationDto>> CalculateCartAsync(
@@ -164,13 +171,17 @@ public sealed class SalesService : ISalesService
         if (request.Payments == null || request.Payments.Count == 0)
             return ApiResponse.Fail<SaleInvoiceDto>("At least one payment is required.", "PAYMENTS_REQUIRED");
 
-        // Validate deferred payment methods
+        // Validate payment methods
         foreach (var p in request.Payments)
         {
-            if (p.Method == PaymentMethod.Credit)
-                return ApiResponse.Fail<SaleInvoiceDto>("Credit payment method is deferred to Phase 8.", "PAYMENT_METHOD_DEFERRED");
             if (p.Method == PaymentMethod.Mixed)
                 return ApiResponse.Fail<SaleInvoiceDto>("Mixed payment cannot be submitted as an individual payment item.", "INVALID_PAYMENT_METHOD");
+        }
+
+        var creditPaymentAmount = request.Payments.Where(p => p.Method == PaymentMethod.Credit).Sum(p => p.AmountAppliedPaise);
+        if (creditPaymentAmount > 0 && !request.CustomerId.HasValue)
+        {
+            return ApiResponse.Fail<SaleInvoiceDto>("Customer is required for credit sales.", "CUSTOMER_REQUIRED_FOR_CREDIT_SALE");
         }
 
         // Idempotency fast-path check
@@ -346,6 +357,49 @@ public sealed class SalesService : ISalesService
 
                 sale.ValidatePaymentsReconcile();
 
+                // Phase 8: Customer credit update
+                var creditPaidPaise = request.Payments.Where(p => p.Method == PaymentMethod.Credit).Sum(p => p.AmountAppliedPaise);
+                if (creditPaidPaise > 0)
+                {
+                    if (!request.CustomerId.HasValue)
+                        throw new DomainException("Customer is required for credit sales.", "CUSTOMER_REQUIRED_FOR_CREDIT_SALE");
+
+                    if (_customerRepo != null)
+                    {
+                        var customer = await _customerRepo.GetByIdTrackedAsync(request.CustomerId.Value, cancellationToken);
+                        if (customer == null)
+                            throw new DomainException("Customer not found.", "CUSTOMER_NOT_FOUND");
+
+                        if (!customer.IsActive)
+                            throw new DomainException("Customer is inactive. Cannot process credit sale.", "CUSTOMER_INACTIVE");
+
+                        // Store credit consumed first
+                        long storeCreditConsumed = 0;
+                        if (customer.CreditBalance.IsPositive)
+                        {
+                            storeCreditConsumed = Math.Min(customer.CreditBalance.MinorUnits, creditPaidPaise);
+                            customer.DecreaseCreditBalance(Money.FromMinorUnits(storeCreditConsumed, Currency.INR));
+                        }
+
+                        long remainingCreditCharged = creditPaidPaise - storeCreditConsumed;
+                        if (remainingCreditCharged > 0)
+                        {
+                            customer.AddCredit(Money.FromMinorUnits(remainingCreditCharged, Currency.INR));
+                        }
+                    }
+                }
+
+                // Phase 8: Cash session cash contribution (including mixed payments)
+                var cashPaidPaise = request.Payments.Where(p => p.Method == PaymentMethod.Cash).Sum(p => p.AmountAppliedPaise);
+                if (cashPaidPaise > 0 && _cashSessionRepo != null)
+                {
+                    var activeSession = await _cashSessionRepo.GetActiveSessionAsync(terminalId, cancellationToken);
+                    if (activeSession != null)
+                    {
+                        activeSession.AddCashSale(Money.FromMinorUnits(cashPaidPaise, Currency.INR));
+                    }
+                }
+
                 await _saleRepo.AddAsync(sale, cancellationToken);
 
                 var auditDetails = string.Format(CultureInfo.InvariantCulture, "Sale completed. Invoice: {0}, Total: {1:N2}, Items: {2}, Cashier: {3}.", invoiceNumber, pricedResult.FinalPayable.AmountInMajorUnits, sale.Items.Count, cashierName);
@@ -389,8 +443,6 @@ public sealed class SalesService : ISalesService
         if (string.IsNullOrWhiteSpace(request.Reason))
             return ApiResponse.Fail<SaleRefundDto>("Refund reason is required.", "REFUND_REASON_REQUIRED");
 
-        if (request.RefundMethod == PaymentMethod.Credit)
-            return ApiResponse.Fail<SaleRefundDto>("Credit refund method is not supported in Phase 6.", "PAYMENT_METHOD_DEFERRED");
         if (request.RefundMethod == PaymentMethod.Mixed)
             return ApiResponse.Fail<SaleRefundDto>("Mixed payment method is not allowed for refunds.", "INVALID_REFUND_METHOD");
 
@@ -537,6 +589,45 @@ public sealed class SalesService : ISalesService
                 }
 
                 await _refundRepo.AddRefundAsync(refund, cancellationToken);
+
+                // Phase 8: Cash session refund integration
+                if (request.RefundMethod == PaymentMethod.Cash && _cashSessionRepo != null)
+                {
+                    var activeSession = await _cashSessionRepo.GetActiveSessionAsync(terminalId, cancellationToken);
+                    if (activeSession != null)
+                    {
+                        activeSession.AddCashRefund(refund.TotalRefundAmount);
+                    }
+                }
+
+                // Phase 8: Customer credit refund integration
+                if (request.RefundMethod == PaymentMethod.Credit)
+                {
+                    if (!sale.CustomerId.HasValue)
+                        throw new DomainException("Customer is required for credit refunds.", "CUSTOMER_REQUIRED_FOR_CREDIT_REFUND");
+
+                    if (_customerRepo != null)
+                    {
+                        var customer = await _customerRepo.GetByIdTrackedAsync(sale.CustomerId.Value, cancellationToken);
+                        if (customer != null)
+                        {
+                            var refundAmount = refund.TotalRefundAmount;
+                            if (customer.OutstandingCredit.MinorUnits >= refundAmount.MinorUnits)
+                            {
+                                customer.RecordRepayment(refundAmount);
+                            }
+                            else
+                            {
+                                var debtReduction = customer.OutstandingCredit;
+                                var excessToStoreCredit = refundAmount - debtReduction;
+                                if (debtReduction.IsPositive)
+                                    customer.RecordRepayment(debtReduction);
+                                if (excessToStoreCredit.IsPositive)
+                                    customer.IncreaseCreditBalance(excessToStoreCredit);
+                            }
+                        }
+                    }
+                }
 
                 // Update sale invoice status
                 var newTotalRefunded = totalPreviouslyRefunded + calculatedRefundTotalPaise;

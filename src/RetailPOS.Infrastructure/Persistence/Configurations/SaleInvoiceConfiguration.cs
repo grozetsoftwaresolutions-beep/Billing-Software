@@ -1,3 +1,4 @@
+using RetailPOS.Domain.Entities.Customers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RetailPOS.Domain.Entities.Sales;
@@ -27,6 +28,10 @@ public sealed class SaleInvoiceConfiguration : IEntityTypeConfiguration<SaleInvo
 
         builder.Property(s => s.CustomerId);
         builder.HasIndex(s => s.CustomerId).HasDatabaseName("IX_sales_invoices_customer_id");
+        builder.HasOne<Customer>()
+            .WithMany()
+            .HasForeignKey(s => s.CustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(s => s.PricingModel).IsRequired();
         builder.Property(s => s.Status).IsRequired();

@@ -575,14 +575,160 @@ CREATE INDEX IF NOT EXISTS IX_supplier_payment_allocations_invoice_id ON supplie
 ";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-        // 7. PRAGMA integrity and foreign key checks
+        // -------------------------------------------------------------
+        // Phase 8: Customers, Customer Payments, Cash Sessions & Transactions
+        // -------------------------------------------------------------
+
+        // 7. Ensure customers table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS customers (
+    Id TEXT PRIMARY KEY,
+    Name TEXT(150) NOT NULL,
+    Phone TEXT(20) NULL,
+    Email TEXT(100) NULL,
+    Address TEXT(300) NULL,
+    Gstin TEXT(15) NULL,
+    OutstandingCredit INTEGER NOT NULL DEFAULT 0,
+    CreditBalance INTEGER NOT NULL DEFAULT 0,
+    CreditLimit INTEGER NOT NULL DEFAULT 0,
+    IsActive INTEGER NOT NULL DEFAULT 1,
+    Notes TEXT(500) NULL,
+    CreatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
+    UpdatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z'
+);
+CREATE INDEX IF NOT EXISTS IX_customers_name ON customers(Name);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Check if existing customers table has any missing Phase 8 columns
+        cmd.CommandText = "PRAGMA table_info(customers);";
+        var custColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                custColumns.Add(reader.GetString(1));
+            }
+        }
+
+        if (!custColumns.Contains("Address"))
+        {
+            cmd.CommandText = "ALTER TABLE customers ADD COLUMN Address TEXT(300) NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!custColumns.Contains("Gstin"))
+        {
+            cmd.CommandText = "ALTER TABLE customers ADD COLUMN Gstin TEXT(15) NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!custColumns.Contains("CreditBalance"))
+        {
+            cmd.CommandText = "ALTER TABLE customers ADD COLUMN CreditBalance INTEGER NOT NULL DEFAULT 0;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!custColumns.Contains("Notes"))
+        {
+            cmd.CommandText = "ALTER TABLE customers ADD COLUMN Notes TEXT(500) NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!custColumns.Contains("CreatedAtUtc"))
+        {
+            cmd.CommandText = "ALTER TABLE customers ADD COLUMN CreatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!custColumns.Contains("UpdatedAtUtc"))
+        {
+            cmd.CommandText = "ALTER TABLE customers ADD COLUMN UpdatedAtUtc TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Now that all columns are guaranteed to exist, ensure indexes
+        cmd.CommandText = @"
+CREATE UNIQUE INDEX IF NOT EXISTS UK_customers_phone ON customers(Phone) WHERE Phone IS NOT NULL;
+CREATE INDEX IF NOT EXISTS IX_customers_gstin ON customers(Gstin) WHERE Gstin IS NOT NULL;
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 8. Ensure customer_payments table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS customer_payments (
+    Id TEXT PRIMARY KEY,
+    StoreId INTEGER NOT NULL REFERENCES stores(Id),
+    CustomerId TEXT NOT NULL REFERENCES customers(Id) ON DELETE RESTRICT,
+    Amount INTEGER NOT NULL,
+    Method INTEGER NOT NULL,
+    ReferenceNumber TEXT(50) NULL,
+    PaymentDateUtc TEXT NOT NULL,
+    ClientTransactionId TEXT NOT NULL,
+    CreatedByUserId TEXT NOT NULL REFERENCES users(Id),
+    Notes TEXT(500) NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_customer_payments_customer_id ON customer_payments(CustomerId);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_customer_payments_client_tx ON customer_payments(ClientTransactionId);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 9. Ensure cash_sessions table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS cash_sessions (
+    Id TEXT PRIMARY KEY,
+    StoreId INTEGER NOT NULL REFERENCES stores(Id),
+    TerminalId TEXT NOT NULL,
+    CashierUserId TEXT NOT NULL,
+    OpeningTimeUtc TEXT NOT NULL,
+    ClosingTimeUtc TEXT NULL,
+    OpeningFloat INTEGER NOT NULL,
+    TotalCashSales INTEGER NOT NULL DEFAULT 0,
+    TotalCashRepayments INTEGER NOT NULL DEFAULT 0,
+    TotalCashRefunds INTEGER NOT NULL DEFAULT 0,
+    TotalPayIns INTEGER NOT NULL DEFAULT 0,
+    TotalPayOuts INTEGER NOT NULL DEFAULT 0,
+    TotalCashDrops INTEGER NOT NULL DEFAULT 0,
+    ClosingCash INTEGER NULL,
+    Discrepancy INTEGER NULL,
+    Status INTEGER NOT NULL DEFAULT 1,
+    ClosingNotes TEXT(500) NULL,
+    IsForceClosed INTEGER NOT NULL DEFAULT 0,
+    ClosedByUserId TEXT NULL,
+    ForceCloseReason TEXT(500) NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_cash_sessions_open_terminal ON cash_sessions(TerminalId) WHERE Status = 1;
+CREATE INDEX IF NOT EXISTS IX_cash_sessions_terminal_id ON cash_sessions(TerminalId);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 10. Ensure cash_session_transactions table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS cash_session_transactions (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    CashSessionId TEXT NOT NULL REFERENCES cash_sessions(Id) ON DELETE CASCADE,
+    Type INTEGER NOT NULL,
+    Amount INTEGER NOT NULL,
+    Reason TEXT(250) NOT NULL,
+    ClientTransactionId TEXT NOT NULL,
+    CreatedByUserId TEXT NOT NULL,
+    AuthorizedByUserId TEXT NULL,
+    TimestampUtc TEXT NOT NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_session_id ON cash_session_transactions(CashSessionId);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_cash_session_transactions_client_tx ON cash_session_transactions(ClientTransactionId);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 11. PRAGMA integrity and foreign key checks
         cmd.CommandText = "PRAGMA foreign_key_check;";
         using (var fkReader = await cmd.ExecuteReaderAsync(cancellationToken))
         {
             if (await fkReader.ReadAsync(cancellationToken))
             {
                 var fkViolationTable = fkReader.GetString(0);
-                throw new InvalidOperationException($"Foreign key integrity violation detected in table '{fkViolationTable}' during Phase 7 migration.");
+                throw new InvalidOperationException($"Foreign key integrity violation detected in table '{fkViolationTable}' during Phase 8 migration.");
             }
         }
 

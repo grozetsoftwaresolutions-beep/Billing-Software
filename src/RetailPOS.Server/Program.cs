@@ -85,6 +85,8 @@ builder.Services.AddScoped<ISaleRefundRepository, EfSaleRefundRepository>();
 builder.Services.AddScoped<IInvoiceSequenceRepository, EfInvoiceSequenceRepository>();
 builder.Services.AddScoped<ISupplierRepository, EfSupplierRepository>();
 builder.Services.AddScoped<IPurchaseRepository, EfPurchaseRepository>();
+builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
+builder.Services.AddScoped<ICashSessionRepository, EfCashSessionRepository>();
 
 // Register cryptographic security and session management
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -104,6 +106,8 @@ builder.Services.AddScoped<ISalesService, SalesService>();
 builder.Services.AddScoped<IPricingCalculator, PricingCalculator>();
 builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IPurchaseService, PurchaseService>();
+builder.Services.AddScoped<ICustomerService, CustomerService>();
+builder.Services.AddScoped<ICashSessionService, CashSessionService>();
 
 // Register infrastructure services
 builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>();
@@ -137,6 +141,10 @@ app.MapStoreEndpoints();
 // Phase 7 Purchases and Supplier endpoints
 app.MapSupplierEndpoints();
 app.MapPurchaseEndpoints();
+
+// Phase 8 Customer and Cash Session endpoints
+app.MapCustomerEndpoints();
+app.MapCashSessionEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())
