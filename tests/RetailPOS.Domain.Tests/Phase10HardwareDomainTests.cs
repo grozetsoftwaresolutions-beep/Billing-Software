@@ -215,7 +215,7 @@ public sealed class Phase10HardwareDomainTests
         var builder = ReceiptLayoutEngine.BuildReceipt(store, invoice, summary, options);
         var preview = builder.ToAsciiPreview();
 
-        Assert.Contains("*** REPRINT ***", preview, StringComparison.Ordinal);
+        Assert.Contains("*** DUPLICATE / REPRINT ***", preview, StringComparison.Ordinal);
         Assert.Contains("Reprint #2", preview, StringComparison.Ordinal);
     }
 
@@ -240,5 +240,41 @@ public sealed class Phase10HardwareDomainTests
         var backToAscii = Encoding.ASCII.GetString(bytes);
         Assert.Contains("Paruppu", backToAscii, StringComparison.Ordinal);
         Assert.Contains("Rs.", backToAscii, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReceiptEncodingStrategy_SupportsCustomCodePages_CP437_CP850_AndFallback()
+    {
+        // 1. CP437 encoding
+        var textCp437 = "Box: ÉÍ» Total: 50.00";
+        var bytesCp437 = ReceiptEncodingStrategy.Encode(textCp437, PrinterEncoding.Custom, 437);
+        Assert.NotNull(bytesCp437);
+        Assert.NotEmpty(bytesCp437);
+
+        // 2. CP850 encoding
+        var textCp850 = "Café Crème - 5.00";
+        var bytesCp850 = ReceiptEncodingStrategy.Encode(textCp850, PrinterEncoding.Custom, 850);
+        Assert.NotNull(bytesCp850);
+        Assert.NotEmpty(bytesCp850);
+
+        // 3. Mixed English + Tamil
+        var mixedText = "Ponni Arisi 5kg - பொன்னி அரிசி - ₹ 250";
+        var mixedBytes = ReceiptEncodingStrategy.Encode(mixedText, PrinterEncoding.Ascii, 0);
+        var mixedAscii = System.Text.Encoding.ASCII.GetString(mixedBytes);
+        Assert.Contains("Ponni Arisi", mixedAscii);
+        Assert.Contains("Rs. 250", mixedAscii);
+
+        // 4. Devanagari (Hindi) fallback/clean substitution without crashing
+        var hindiText = "चावल (Rice) - ₹ 100";
+        var hindiBytes = ReceiptEncodingStrategy.Encode(hindiText, PrinterEncoding.Ascii, 0);
+        Assert.NotNull(hindiBytes);
+        var hindiAscii = System.Text.Encoding.ASCII.GetString(hindiBytes);
+        Assert.Contains("(Rice) - Rs. 100", hindiAscii);
+
+        // 5. Unsupported emoji character replaced with '?' without crashing
+        var emojiText = "Special Deal 😀";
+        var emojiBytes = ReceiptEncodingStrategy.Encode(emojiText, PrinterEncoding.Ascii, 0);
+        var emojiAscii = System.Text.Encoding.ASCII.GetString(emojiBytes);
+        Assert.Contains("Special Deal ?", emojiAscii);
     }
 }

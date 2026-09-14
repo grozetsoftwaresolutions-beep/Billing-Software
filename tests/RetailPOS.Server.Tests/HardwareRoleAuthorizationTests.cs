@@ -233,4 +233,198 @@ public sealed class HardwareRoleAuthorizationTests
             Assert.NotNull(finalInv.LastReprintedAtUtc);
         }
     }
+
+    [Fact]
+    public async Task TerminalHardwareConfig_OmittedHeader_NonAdminForbidden()
+    {
+        var (factory, client, ownerToken, terminalId1, cashierToken, _, _) = await SetupRolesAsync();
+        using (factory)
+        {
+            // Register a second terminal with Owner role
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+            client.DefaultRequestHeaders.Remove("X-Terminal-Id");
+            var term2Res = await client.PostAsJsonAsync("/api/v1/terminals", new RegisterTerminalRequest("POS-T2", "Second Terminal"));
+            var terminalId2 = (await term2Res.Content.ReadFromJsonAsync<ApiResponse<TerminalDto>>())!.Data!.Id;
+
+            // Cashier logs in (session bound to Terminal 1)
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+
+            // Cashier calls Terminal 2 config WITH NO X-Terminal-ID header -> MUST be rejected (403)
+            client.DefaultRequestHeaders.Remove("X-Terminal-Id");
+            var resNoHeader = await client.GetAsync($"/api/v1/terminals/{terminalId2}/hardware-config");
+            Assert.Equal(HttpStatusCode.Forbidden, resNoHeader.StatusCode);
+
+            // Cashier calls Terminal 2 config WITH X-Terminal-Id = Terminal 1 -> MUST be rejected (403 TERMINAL_MISMATCH)
+            client.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId1.ToString());
+            var resMismatch = await client.GetAsync($"/api/v1/terminals/{terminalId2}/hardware-config");
+            Assert.Equal(HttpStatusCode.Forbidden, resMismatch.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentReprint_CaseA_10SuccessfulConfirmations_IncrementsBy10()
+    {
+        var (factory, client, _, terminalId, cashierToken, _, _) = await SetupRolesAsync();
+        using (factory)
+        {
+            var invoiceId = Guid.NewGuid();
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
+                var invoice = new SaleInvoice(
+                    invoiceId, "INV-CONC-A-001", Guid.NewGuid(), terminalId, Guid.NewGuid(),
+                    PricingModel.TaxInclusive, Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(),
+                    Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(), Money.FromMinorUnits(5000));
+                db.SalesInvoices.Add(invoice);
+                await db.SaveChangesAsync();
+            }
+
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+            client.DefaultRequestHeaders.Remove("X-Terminal-Id");
+            client.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId.ToString());
+
+            // 10 concurrent successful reprint confirmation requests
+            var tasks = Enumerable.Range(1, 10).Select(i =>
+            {
+                var c = factory.CreateClient();
+                c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+                c.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId.ToString());
+                return c.PostAsJsonAsync($"/api/v1/sales/{invoiceId}/confirm-reprint", new ConfirmReprintRequest($"Case A reprint {i}"));
+            }).ToList();
+
+            var responses = await Task.WhenAll(tasks);
+            foreach (var r in responses)
+            {
+                Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            }
+
+            var finalRes = await client.GetAsync($"/api/v1/sales/{invoiceId}");
+            var invDto = (await finalRes.Content.ReadFromJsonAsync<ApiResponse<SaleInvoiceDto>>())!.Data!;
+            Assert.Equal(10, invDto.ReprintCount);
+            Assert.NotNull(invDto.LastReprintedAtUtc);
+
+            // Verify audit logs contain 10 RECEIPT_REPRINTED
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
+                var count = db.AuditLogs.Count(a => a.Action == "RECEIPT_REPRINTED" && a.Details != null && a.Details.Contains(invDto.InvoiceNumber));
+                Assert.Equal(10, count);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentReprint_CaseB_10FailedConfirmations_RemainsUnchanged()
+    {
+        var (factory, client, _, terminalId, cashierToken, _, _) = await SetupRolesAsync();
+        using (factory)
+        {
+            var invoiceId = Guid.NewGuid();
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
+                var invoice = new SaleInvoice(
+                    invoiceId, "INV-CONC-B-001", Guid.NewGuid(), terminalId, Guid.NewGuid(),
+                    PricingModel.TaxInclusive, Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(),
+                    Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(), Money.FromMinorUnits(5000));
+                db.SalesInvoices.Add(invoice);
+                await db.SaveChangesAsync();
+            }
+
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+            client.DefaultRequestHeaders.Remove("X-Terminal-Id");
+            client.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId.ToString());
+
+            // 10 concurrent failed reprint reports
+            var tasks = Enumerable.Range(1, 10).Select(i =>
+            {
+                var c = factory.CreateClient();
+                c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+                c.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId.ToString());
+                return c.PostAsJsonAsync($"/api/v1/sales/{invoiceId}/report-reprint-failed", new ReportReprintFailedRequest("Printer paper jammed"));
+            }).ToList();
+
+            var responses = await Task.WhenAll(tasks);
+            foreach (var r in responses)
+            {
+                Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            }
+
+            var finalRes = await client.GetAsync($"/api/v1/sales/{invoiceId}");
+            var invDto = (await finalRes.Content.ReadFromJsonAsync<ApiResponse<SaleInvoiceDto>>())!.Data!;
+            Assert.Equal(0, invDto.ReprintCount);
+            Assert.Null(invDto.LastReprintedAtUtc);
+
+            // Verify audit logs contain 10 REPRINT_FAILED
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
+                var count = db.AuditLogs.Count(a => a.Action == "REPRINT_FAILED" && a.Details != null && a.Details.Contains(invDto.InvoiceNumber));
+                Assert.Equal(10, count);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentReprint_CaseC_6SuccessfulAnd4Failed_IncrementsBy6()
+    {
+        var (factory, client, _, terminalId, cashierToken, _, _) = await SetupRolesAsync();
+        using (factory)
+        {
+            var invoiceId = Guid.NewGuid();
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
+                var invoice = new SaleInvoice(
+                    invoiceId, "INV-CONC-C-001", Guid.NewGuid(), terminalId, Guid.NewGuid(),
+                    PricingModel.TaxInclusive, Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(),
+                    Money.FromMinorUnits(5000), Money.Zero(), Money.Zero(), Money.FromMinorUnits(5000));
+                db.SalesInvoices.Add(invoice);
+                await db.SaveChangesAsync();
+            }
+
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+            client.DefaultRequestHeaders.Remove("X-Terminal-Id");
+            client.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId.ToString());
+
+            // 6 success + 4 failure concurrent requests
+            var successTasks = Enumerable.Range(1, 6).Select(i =>
+            {
+                var c = factory.CreateClient();
+                c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+                c.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId.ToString());
+                return c.PostAsJsonAsync($"/api/v1/sales/{invoiceId}/confirm-reprint", new ConfirmReprintRequest($"Case C success {i}"));
+            });
+
+            var failTasks = Enumerable.Range(1, 4).Select(i =>
+            {
+                var c = factory.CreateClient();
+                c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+                c.DefaultRequestHeaders.Add("X-Terminal-Id", terminalId.ToString());
+                return c.PostAsJsonAsync($"/api/v1/sales/{invoiceId}/report-reprint-failed", new ReportReprintFailedRequest("Out of paper"));
+            });
+
+            var allTasks = successTasks.Concat(failTasks).ToList();
+            var responses = await Task.WhenAll(allTasks);
+
+            foreach (var r in responses)
+            {
+                Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            }
+
+            var finalRes = await client.GetAsync($"/api/v1/sales/{invoiceId}");
+            var invDto = (await finalRes.Content.ReadFromJsonAsync<ApiResponse<SaleInvoiceDto>>())!.Data!;
+            Assert.Equal(6, invDto.ReprintCount);
+            Assert.NotNull(invDto.LastReprintedAtUtc);
+
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
+                var successAudit = db.AuditLogs.Count(a => a.Action == "RECEIPT_REPRINTED" && a.Details != null && a.Details.Contains(invDto.InvoiceNumber));
+                var failAudit = db.AuditLogs.Count(a => a.Action == "REPRINT_FAILED" && a.Details != null && a.Details.Contains(invDto.InvoiceNumber));
+                Assert.Equal(6, successAudit);
+                Assert.Equal(4, failAudit);
+            }
+        }
+    }
 }

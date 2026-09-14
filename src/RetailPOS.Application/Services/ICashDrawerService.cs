@@ -10,7 +10,10 @@ public interface ICashDrawerService
 {
     DrawerKickDirective EvaluateSaleDrawerKick(SaleInvoice invoice);
     DrawerKickDirective EvaluateRefundDrawerKick(SaleRefund refund);
+    DrawerKickDirective EvaluateCustomerPaymentDrawerKick(PaymentMethod method, long amountMinorUnits);
+    DrawerKickDirective EvaluateCashSessionDrawerKick(CashTransactionType transactionType, long amountMinorUnits);
     Task<DrawerKickResponseDto> TriggerDrawerKickAsync(Guid terminalId, Guid userId, string reason, bool isManualOpen = false, CancellationToken cancellationToken = default);
+    Task RecordAutomatedDrawerKickAuditAsync(Guid terminalId, Guid userId, string transactionType, Guid transactionId, bool success, string? errorMessage, CancellationToken cancellationToken = default);
 }
 
 public sealed class CashDrawerService : ICashDrawerService
@@ -44,6 +47,19 @@ public sealed class CashDrawerService : ICashDrawerService
         return new DrawerKickDirective(isCash, isCash ? "CASH_REFUND" : null, isCash ? refund.TotalRefundAmount.MinorUnits : null);
     }
 
+    public DrawerKickDirective EvaluateCustomerPaymentDrawerKick(PaymentMethod method, long amountMinorUnits)
+    {
+        var isCash = method == PaymentMethod.Cash && amountMinorUnits > 0;
+        return new DrawerKickDirective(isCash, isCash ? "CASH_CUSTOMER_REPAYMENT" : null, isCash ? amountMinorUnits : null);
+    }
+
+    public DrawerKickDirective EvaluateCashSessionDrawerKick(CashTransactionType transactionType, long amountMinorUnits)
+    {
+        var isCash = transactionType is CashTransactionType.PayIn or CashTransactionType.PayOut or CashTransactionType.CashDrop;
+        var reason = transactionType.ToString().ToUpperInvariant();
+        return new DrawerKickDirective(isCash, isCash ? reason : null, isCash ? amountMinorUnits : null);
+    }
+
     public async Task<DrawerKickResponseDto> TriggerDrawerKickAsync(
         Guid terminalId,
         Guid userId,
@@ -52,10 +68,45 @@ public sealed class CashDrawerService : ICashDrawerService
         CancellationToken cancellationToken = default)
     {
         var result = await _drawer.OpenDrawerAsync(reason, cancellationToken);
-        var action = isManualOpen ? "DRAWER_OPENED_MANUALLY" : (result.Success ? "DRAWER_TEST_KICK" : "DRAWER_KICK_FAILED");
+        var action = result.Success
+            ? (isManualOpen ? "DRAWER_OPENED_MANUALLY" : "DRAWER_TEST_KICK")
+            : "DRAWER_KICK_FAILED";
+
         var details = $"[Terminal:{terminalId}] Drawer open '{reason}' via {result.DrawerType}" + (result.Success ? "" : $": {result.ErrorMessage}");
 
         await _auditRepo.RecordAsync("Terminal", action, userId.ToString(), details, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return new DrawerKickResponseDto(result.Success, result.DrawerType, result.ErrorMessage, DateTime.UtcNow);
+    }
+
+    public async Task RecordAutomatedDrawerKickAuditAsync(
+        Guid terminalId,
+        Guid userId,
+        string transactionType,
+        Guid transactionId,
+        bool success,
+        string? errorMessage,
+        CancellationToken cancellationToken = default)
+    {
+        string action;
+        if (!success)
+        {
+            action = "DRAWER_KICK_FAILED";
+        }
+        else
+        {
+            action = transactionType.ToUpperInvariant() switch
+            {
+                "SALE" => "DRAWER_OPENED_SALE",
+                "REFUND" => "DRAWER_OPENED_REFUND",
+                _ => "DRAWER_OPENED_MANUALLY"
+            };
+        }
+
+        var details = $"[Terminal:{terminalId}] Automated drawer kick for {transactionType} {transactionId}" +
+            (success ? " succeeded" : $": {errorMessage}");
+
+        await _auditRepo.RecordAsync("Drawer", action, userId.ToString(), details, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 }

@@ -293,17 +293,27 @@ public sealed class CashSessionService : ICashSessionService
         s.ClosedByUserId,
         s.ForceCloseReason);
 
-    private static CashSessionTransactionDto MapTxToDto(CashSessionTransaction tx) => new(
-        tx.Id,
-        tx.CashSessionId,
-        tx.Type,
-        tx.Amount.MinorUnits,
-        tx.Reason,
-        tx.ClientTransactionId,
-        tx.CreatedByUserId,
-        tx.AuthorizedByUserId,
-        tx.TimestampUtc,
-        tx.SaleInvoiceId,
-        tx.RefundId,
-        tx.CustomerPaymentId);
+    private static CashSessionTransactionDto MapTxToDto(CashSessionTransaction tx)
+    {
+        var isCash = tx.Type is RetailPOS.Domain.Enums.CashTransactionType.PayIn or RetailPOS.Domain.Enums.CashTransactionType.PayOut or RetailPOS.Domain.Enums.CashTransactionType.CashDrop;
+        var drawerKick = new RetailPOS.Contracts.Hardware.DrawerKickDirective(
+            isCash,
+            isCash ? tx.Type.ToString().ToUpperInvariant() : null,
+            isCash ? tx.Amount.MinorUnits : null);
+
+        return new(
+            tx.Id,
+            tx.CashSessionId,
+            tx.Type,
+            tx.Amount.MinorUnits,
+            tx.Reason,
+            tx.ClientTransactionId,
+            tx.CreatedByUserId,
+            tx.AuthorizedByUserId,
+            tx.TimestampUtc,
+            tx.SaleInvoiceId,
+            tx.RefundId,
+            tx.CustomerPaymentId,
+            drawerKick);
+    }
 }

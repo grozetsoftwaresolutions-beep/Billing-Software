@@ -95,4 +95,42 @@ public sealed class TerminalHardwareCoordinatorTests
         var tareResult = await coordinator.TareScaleAsync();
         Assert.True(tareResult);
     }
+
+    [Fact]
+    public void TerminalHardwareCoordinator_SelectsSerialComScale_WhenConfigured()
+    {
+        using var coordinator = new TerminalHardwareCoordinator();
+        var terminalId = Guid.NewGuid();
+
+        var config = new TerminalHardwareConfigDto(
+            TerminalId: terminalId,
+            PrinterConnectionType: PrinterConnectionType.Simulated,
+            PrinterNameOrAddress: "SimulatedPrinter",
+            PaperWidth: PaperWidth.Width80mm,
+            PrinterEncoding: PrinterEncoding.Ascii,
+            PrinterCodePage: 0,
+            PrinterTimeoutMs: 5000,
+            AutoCut: true,
+            OpenDrawerOnCashSale: true,
+            DrawerConnectionType: DrawerConnectionType.Simulated,
+            DrawerKickPin: 0,
+            DrawerPulseOnMs: 50,
+            DrawerPulseOffMs: 500,
+            ScannerMaxInterKeyMs: 35,
+            ScaleConnectionType: ScaleConnectionType.SerialCom,
+            ScalePortName: "COM3",
+            ScaleBaudRate: 9600,
+            ScaleDataBits: 8,
+            ScaleParity: 0,
+            ScaleStopBits: 1,
+            ScaleProtocol: ScaleProtocol.GenericAscii,
+            ScaleTimeoutMs: 2000,
+            IsScaleEnabled: true,
+            UpdatedAtUtc: DateTime.UtcNow);
+
+        coordinator.Initialize(config);
+
+        Assert.True(coordinator.IsInitialized);
+        Assert.IsType<RetailPOS.Infrastructure.Hardware.SerialComWeighingScale>(coordinator.Scale);
+    }
 }

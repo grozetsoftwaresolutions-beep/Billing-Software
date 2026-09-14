@@ -5,6 +5,7 @@ using RetailPOS.Application.Services;
 using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Hardware;
 using RetailPOS.Domain.Enums;
+using RetailPOS.Server.Authentication;
 using RetailPOS.Server.Middleware;
 
 namespace RetailPOS.Server.Endpoints;
@@ -20,20 +21,39 @@ public static class TerminalHardwareConfigEndpoints
             Guid terminalId,
             HttpContext httpContext,
             ITerminalHardwareConfigService service,
+            ILocalSessionValidator sessionValidator,
             CancellationToken ct) =>
         {
             var userRole = httpContext.Items.TryGetValue("CurrentUserRole", out var rObj) && rObj is RoleType r ? r : RoleType.Cashier;
-            var callingTerminalId = httpContext.Items.TryGetValue(TerminalValidationMiddleware.ValidatedTerminalIdItemKey, out var tidObj) && tidObj is Guid tid
-                ? tid
-                : (Guid?)null;
 
             // Terminal Isolation Invariant: Non-admin/owner terminals can only access their own configuration
             if (userRole != RoleType.Admin && userRole != RoleType.Owner)
             {
-                if (callingTerminalId.HasValue && callingTerminalId.Value != terminalId)
+                // 1. Check validated terminal header if present
+                var callingTerminalId = httpContext.Items.TryGetValue(TerminalValidationMiddleware.ValidatedTerminalIdItemKey, out var tidObj) && tidObj is Guid tid
+                    ? tid
+                    : (Guid?)null;
+
+                // 2. If header omitted, check authenticated session token binding
+                if (!callingTerminalId.HasValue && httpContext.Request.Headers.TryGetValue("Authorization", out var authHeader))
+                {
+                    var headerStr = authHeader.ToString();
+                    if (headerStr.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var token = headerStr["Bearer ".Length..].Trim();
+                        var session = await sessionValidator.ValidateSessionAsync(token, ct);
+                        if (session.IsValid && session.TerminalId.HasValue)
+                        {
+                            callingTerminalId = session.TerminalId.Value;
+                        }
+                    }
+                }
+
+                // Non-admin MUST be bound to a terminal, and that terminal MUST match route terminalId
+                if (!callingTerminalId.HasValue || callingTerminalId.Value != terminalId)
                 {
                     return Results.Json(
-                        ApiResponse.Fail<TerminalHardwareConfigDto>("Terminal is not authorized to read hardware configuration of another terminal.", "TERMINAL_MISMATCH"),
+                        ApiResponse.Fail<TerminalHardwareConfigDto>("Terminal is not authorized to access hardware configuration of another terminal.", "TERMINAL_MISMATCH"),
                         statusCode: StatusCodes.Status403Forbidden);
                 }
             }

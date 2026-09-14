@@ -224,4 +224,132 @@ public sealed class SqlitePhase10HardwareIntegrationTests : IDisposable
         public Task<DeviceStatusResult> GetStatusAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(DeviceStatusResult.Offline("Printer offline"));
     }
+
+        [Fact]
+    public async Task HistoricalReceipt_MutatedProductMasterData_DoesNotAffectReprint()
+    {
+        using var context = new RetailDbContext(_options);
+        var uow = new EfUnitOfWork(context);
+        var saleRepo = new EfSaleRepository(context);
+        var storeRepo = new EfStoreRepository(context);
+        var termRepo = new EfTerminalRepository(context);
+        var hwConfigRepo = new TerminalHardwareConfigRepository(context);
+        var auditRepo = new EfAuditLogRepository(context);
+        var printer = new SimulatedReceiptPrinter();
+
+        // 1. Setup Terminal (Store is seeded by DatabaseInitializer)
+        var terminal = new Terminal(Guid.NewGuid(), "POS-HIST-01", "Historical Test Terminal");
+        await termRepo.AddAsync(terminal);
+        await uow.SaveChangesAsync();
+
+        // 2. Create Product Master Data
+        var productId = Guid.NewGuid();
+        var product = new RetailPOS.Domain.Entities.Catalog.Product(
+            productId,
+            "RICE-001",
+            "Basmati Rice 1kg",
+            UnitOfMeasure.Piece,
+            Money.FromMinorUnits(7000),
+            Money.FromMinorUnits(10000),
+            1);
+
+        context.Products.Add(product);
+        await uow.SaveChangesAsync();
+
+        // 3. Create historical Sale Invoice referencing this product
+        var invoiceId = Guid.NewGuid();
+        var invoice = new SaleInvoice(
+            invoiceId,
+            "INV-HIST-001",
+            Guid.NewGuid(),
+            terminal.Id,
+            Guid.NewGuid(),
+            PricingModel.TaxInclusive,
+            Money.FromMinorUnits(10000),
+            Money.Zero(),
+            Money.Zero(),
+            Money.FromMinorUnits(10000),
+            Money.Zero(),
+            Money.Zero(),
+            Money.FromMinorUnits(10000));
+
+        var saleItem = new SaleItem(
+            1,
+            invoiceId,
+            productId,
+            "RICE-001",
+            "Basmati Rice 1kg",
+            Quantity.From(1, UnitOfMeasure.Piece),
+            Money.FromMinorUnits(10000),
+            Money.FromMinorUnits(7000),
+            Money.FromMinorUnits(10000),
+            Money.Zero(),
+            5m,
+            Money.FromMinorUnits(9524),
+            Money.FromMinorUnits(476),
+            Money.FromMinorUnits(10000));
+
+        saleItem.AddTaxComponent(new SaleItemTaxComponent(1, 1, "CGST", 2.5m, Money.FromMinorUnits(238)));
+        saleItem.AddTaxComponent(new SaleItemTaxComponent(2, 1, "SGST", 2.5m, Money.FromMinorUnits(238)));
+        invoice.AddItem(saleItem);
+
+        invoice.AddPayment(new PaymentRecord(
+            Guid.NewGuid(),
+            invoiceId,
+            PaymentMethod.Cash,
+            Money.FromMinorUnits(10000),
+            Money.FromMinorUnits(10000),
+            Money.Zero()));
+
+        await saleRepo.AddAsync(invoice);
+        await uow.SaveChangesAsync();
+
+        // 4. Render original receipt
+        var receiptService = new ReceiptService(saleRepo, storeRepo, hwConfigRepo, auditRepo, uow, printer);
+
+        var originalPayload = await receiptService.GenerateSaleReceiptPayloadAsync(invoiceId, terminal.Id, isReprint: false);
+        Assert.Contains("Basmati Rice 1kg", originalPayload.AsciiPreview);
+        Assert.Contains("Rs.100.00", originalPayload.AsciiPreview);
+        Assert.Contains("CGST", originalPayload.AsciiPreview);
+        Assert.Contains("SGST", originalPayload.AsciiPreview);
+
+        // 5. Mutate Product Master Data radically
+        product.UpdateDetails("MUTATED ALIEN GRAIN", UnitOfMeasure.Piece, 1, null, null, null);
+        product.UpdatePrices(Money.FromMinorUnits(50000), Money.FromMinorUnits(99900));
+        await uow.SaveChangesAsync();
+
+        // Verify product in database is indeed changed
+        var refreshedProduct = await context.Products.FindAsync(productId);
+        Assert.Equal("MUTATED ALIEN GRAIN", refreshedProduct!.Name);
+        Assert.Equal(99900, refreshedProduct.SellingPrice.MinorUnits);
+
+        // 6. Render historical reprint receipt
+        var reprintPayload = await receiptService.GenerateSaleReceiptPayloadAsync(invoiceId, terminal.Id, isReprint: true);
+
+        // MUST strictly preserve original historical snapshot
+        Assert.Contains("Basmati Rice 1kg", reprintPayload.AsciiPreview);
+        Assert.Contains("Rs.100.00", reprintPayload.AsciiPreview);
+        Assert.Contains("CGST", reprintPayload.AsciiPreview);
+        Assert.Contains("SGST", reprintPayload.AsciiPreview);
+        Assert.Contains("*** DUPLICATE / REPRINT ***", reprintPayload.AsciiPreview);
+
+        // MUST NOT contain mutated product master values
+        Assert.DoesNotContain("MUTATED ALIEN GRAIN", reprintPayload.AsciiPreview);
+        Assert.DoesNotContain("999.00", reprintPayload.AsciiPreview);
+    }
+
+    [Fact]
+    public async Task WindowsSpoolerReceiptPrinter_BoundedTimeout_DoesNotHangBeyond5Seconds()
+    {
+        using var printer = new WindowsSpoolerReceiptPrinter("NonExistentWindowsPrinterForTimeoutTest");
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await printer.PrintRawBytesAsync([0x1B, 0x40], cts.Token);
+        sw.Stop();
+
+        // Must complete or fail within 5 seconds bounded time
+        Assert.False(result.Success);
+        Assert.True(sw.ElapsedMilliseconds < 5500, $"Printer call took {sw.ElapsedMilliseconds}ms, expected under 5500ms");
+    }
 }

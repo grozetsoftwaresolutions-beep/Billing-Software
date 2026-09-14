@@ -91,7 +91,7 @@ public static class ReceiptLayoutEngine
         if (options.IsReprint)
         {
             builder.WriteLine();
-            builder.Bold(true).TextDoubleHeight().WriteLine("*** REPRINT ***").TextNormal().Bold(false);
+            builder.Bold(true).TextDoubleHeight().WriteLine("*** DUPLICATE / REPRINT ***").TextNormal().Bold(false);
             var reprintTime = FormatDateTime(options.LastReprintedAtUtc ?? DateTime.UtcNow, options.TimeZoneId);
             builder.WriteLine($"Reprint #{options.ReprintCount} at {reprintTime}");
         }

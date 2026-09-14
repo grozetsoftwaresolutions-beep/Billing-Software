@@ -82,3 +82,9 @@ public sealed record HardwareStatusDto(
     string ScannerStatus,
     string ActivePrinterName,
     PaperWidth ActivePaperWidth);
+
+public sealed record ReportDrawerKickResultRequest(
+    string TransactionType,
+    Guid TransactionId,
+    bool Success,
+    string? ErrorMessage = null);

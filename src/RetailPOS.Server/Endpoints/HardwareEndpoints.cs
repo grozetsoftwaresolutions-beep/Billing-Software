@@ -52,6 +52,32 @@ public static class HardwareEndpoints
         .WithName("HardwareTestKick")
         .WithSummary("Manually kicks the terminal cash drawer (Manager/Admin/Owner only; Cashier 403).");
 
+        // Report Automated Drawer Kick Result
+        group.MapPost("/drawer/report-kick-result", async (
+            ReportDrawerKickResultRequest request,
+            HttpContext httpContext,
+            ICashDrawerService drawerService,
+            CancellationToken ct) =>
+        {
+            var userId = (Guid)httpContext.Items["CurrentUserId"]!;
+            var terminalId = (Guid)httpContext.Items[TerminalValidationMiddleware.ValidatedTerminalIdItemKey]!;
+
+            await drawerService.RecordAutomatedDrawerKickAuditAsync(
+                terminalId,
+                userId,
+                request.TransactionType,
+                request.TransactionId,
+                request.Success,
+                request.ErrorMessage,
+                ct);
+
+            return Results.Ok(ApiResponse.Ok(new { Reported = true }));
+        })
+        .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
+        .WithMetadata(new RequireTerminalAttribute())
+        .WithName("HardwareReportKickResult")
+        .WithSummary("Reports outcome of client-side automated drawer kick for audit logging.");
+
         // Current Scale Weight
         group.MapGet("/scale/current-weight", async (
             IWeighingScaleService scaleService,

@@ -298,4 +298,121 @@ public sealed class Phase10HardwareApplicationTests
         public Task AddAsync(Domain.Entities.Hardware.TerminalHardwareConfig config, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task UpdateAsync(Domain.Entities.Hardware.TerminalHardwareConfig config, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
+
+    [Fact]
+    public void CashDrawerEligibility_CustomerRepayment_CashKicks_BankTransferDoesNotKick()
+    {
+        var drawer = new SimulatedCashDrawer();
+        var audit = new FakeAuditRepo();
+        var uow = new FakeUnitOfWork();
+        var service = new CashDrawerService(drawer, audit, uow);
+
+        // Cash customer repayment -> ShouldKick: true
+        var cashDirective = service.EvaluateCustomerPaymentDrawerKick(PaymentMethod.Cash, 5000);
+        Assert.True(cashDirective.ShouldKick);
+        Assert.Equal("CASH_CUSTOMER_REPAYMENT", cashDirective.Reason);
+        Assert.Equal(5000, cashDirective.AmountPaise);
+
+        // BankTransfer repayment -> ShouldKick: false
+        var bankDirective = service.EvaluateCustomerPaymentDrawerKick(PaymentMethod.BankTransfer, 5000);
+        Assert.False(bankDirective.ShouldKick);
+        Assert.Null(bankDirective.Reason);
+
+        // UPI repayment -> ShouldKick: false
+        var upiDirective = service.EvaluateCustomerPaymentDrawerKick(PaymentMethod.UPI, 5000);
+        Assert.False(upiDirective.ShouldKick);
+    }
+
+    [Fact]
+    public void CashDrawerEligibility_CashSession_PayIn_PayOut_CashDrop_AllKick()
+    {
+        var drawer = new SimulatedCashDrawer();
+        var audit = new FakeAuditRepo();
+        var uow = new FakeUnitOfWork();
+        var service = new CashDrawerService(drawer, audit, uow);
+
+        // PayIn -> ShouldKick: true
+        var payIn = service.EvaluateCashSessionDrawerKick(CashTransactionType.PayIn, 1000);
+        Assert.True(payIn.ShouldKick);
+        Assert.Equal("PAYIN", payIn.Reason);
+        Assert.Equal(1000, payIn.AmountPaise);
+
+        // PayOut -> ShouldKick: true
+        var payOut = service.EvaluateCashSessionDrawerKick(CashTransactionType.PayOut, 2000);
+        Assert.True(payOut.ShouldKick);
+        Assert.Equal("PAYOUT", payOut.Reason);
+        Assert.Equal(2000, payOut.AmountPaise);
+
+        // CashDrop -> ShouldKick: true
+        var cashDrop = service.EvaluateCashSessionDrawerKick(CashTransactionType.CashDrop, 3000);
+        Assert.True(cashDrop.ShouldKick);
+        Assert.Equal("CASHDROP", cashDrop.Reason);
+        Assert.Equal(3000, cashDrop.AmountPaise);
+    }
+
+    [Fact]
+    public async Task CashDrawerService_PhysicalKickFails_EmitsDrawerKickFailed()
+    {
+        var drawer = new SimulatedCashDrawer { SimulateJammed = true };
+        var audit = new FakeAuditRepo();
+        var uow = new FakeUnitOfWork();
+        var service = new CashDrawerService(drawer, audit, uow);
+
+        var res = await service.TriggerDrawerKickAsync(Guid.NewGuid(), Guid.NewGuid(), "Failed kick test", isManualOpen: true);
+        Assert.False(res.Success);
+
+        // Must emit DRAWER_KICK_FAILED, not DRAWER_OPENED_MANUALLY
+        Assert.Contains(audit.RecordedActions, a => a.Action == "DRAWER_KICK_FAILED");
+        Assert.DoesNotContain(audit.RecordedActions, a => a.Action == "DRAWER_OPENED_MANUALLY");
+    }
+
+    [Fact]
+    public async Task CashDrawerService_RecordAutomatedDrawerKickAudit_EmitsCorrectSaleRefundFailedActions()
+    {
+        var drawer = new SimulatedCashDrawer();
+        var audit = new FakeAuditRepo();
+        var uow = new FakeUnitOfWork();
+        var service = new CashDrawerService(drawer, audit, uow);
+        var terminalId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        // 1. Sale success -> DRAWER_OPENED_SALE
+        await service.RecordAutomatedDrawerKickAuditAsync(terminalId, userId, "SALE", Guid.NewGuid(), true, null);
+        Assert.Contains(audit.RecordedActions, a => a.Action == "DRAWER_OPENED_SALE");
+
+        // 2. Refund success -> DRAWER_OPENED_REFUND
+        await service.RecordAutomatedDrawerKickAuditAsync(terminalId, userId, "REFUND", Guid.NewGuid(), true, null);
+        Assert.Contains(audit.RecordedActions, a => a.Action == "DRAWER_OPENED_REFUND");
+
+        // 3. Any failure -> DRAWER_KICK_FAILED
+        await service.RecordAutomatedDrawerKickAuditAsync(terminalId, userId, "SALE", Guid.NewGuid(), false, "Hardware timeout");
+        Assert.Contains(audit.RecordedActions, a => a.Action == "DRAWER_KICK_FAILED");
+    }
+
+    sealed class FakeAuditRepo : IAuditLogRepository
+    {
+        public List<(string EntityName, string Action, string PerformedBy, string Details)> RecordedActions { get; } = [];
+        public Task RecordAsync(string entityName, string action, string performedBy, string details, CancellationToken cancellationToken = default)
+        {
+            RecordedActions.Add((entityName, action, performedBy, details));
+            return Task.CompletedTask;
+        }
+    }
+
+    sealed class FakeUnitOfWork : IUnitOfWork
+    {
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public Task<IDbTransactionScope> BeginSerializableTransactionAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IDbTransactionScope>(new FakeTransactionScope());
+        public bool IsTransient(Exception ex) => false;
+        public void ResetChangeTracker() { }
+
+        private sealed class FakeTransactionScope : IDbTransactionScope
+        {
+            public Task CommitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task RollbackAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
 }

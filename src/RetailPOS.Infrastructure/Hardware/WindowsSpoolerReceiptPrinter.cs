@@ -55,7 +55,19 @@ public sealed class WindowsSpoolerReceiptPrinter : IReceiptPrinter, IDisposable
         if (bytes == null || bytes.Length == 0)
             return PrintResult.Ok();
 
-        await _semaphore.WaitAsync(cancellationToken);
+        // Bounded 5000ms timeout protection to prevent hanging
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(5000);
+
+        try
+        {
+            await _semaphore.WaitAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return PrintResult.Fail($"Windows Print Spooler timed out waiting for device lock (5000ms).");
+        }
+
         try
         {
             return await Task.Run(() =>

@@ -5,6 +5,11 @@ namespace RetailPOS.Domain.Hardware;
 
 public static class ReceiptEncodingStrategy
 {
+    static ReceiptEncodingStrategy()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
     private static readonly Dictionary<string, string> TamilTransliterationMap = new(StringComparer.Ordinal)
     {
         { "\u0BAA\u0BB0\u0BC1\u0BAA\u0BCD\u0BAA\u0BC1", "Paruppu" },              // பருப்பு
@@ -40,7 +45,7 @@ public static class ReceiptEncodingStrategy
         return processed;
     }
 
-    public static string NormalizeForPrinter(string text, PrinterEncoding encoding)
+    public static string NormalizeForPrinter(string text, PrinterEncoding encoding, int codePage = 0)
     {
         if (string.IsNullOrEmpty(text))
             return string.Empty;
@@ -66,6 +71,11 @@ public static class ReceiptEncodingStrategy
             {
                 sb.Append(c);
             }
+            else if (encoding == PrinterEncoding.Custom)
+            {
+                // In custom code page mode, allow characters that the target encoding supports, else substitute '?'
+                sb.Append(c);
+            }
             else
             {
                 // Substitute clean placeholder for unsupported non-Latin glyphs
@@ -86,7 +96,20 @@ public static class ReceiptEncodingStrategy
             return Encoding.UTF8.GetBytes(text);
         }
 
-        var normalized = NormalizeForPrinter(text, encoding);
+        var normalized = NormalizeForPrinter(text, encoding, codePage);
+
+        if (encoding == PrinterEncoding.Custom && codePage > 0)
+        {
+            try
+            {
+                var customEnc = Encoding.GetEncoding(codePage, EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
+                return customEnc.GetBytes(normalized);
+            }
+            catch
+            {
+                // Fallback to ASCII if specified code page is not found on machine
+            }
+        }
 
         var enc = encoding == PrinterEncoding.Windows1252
             ? Encoding.GetEncoding("ISO-8859-1")

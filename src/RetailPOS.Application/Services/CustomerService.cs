@@ -559,15 +559,25 @@ public sealed class CustomerService : ICustomerService
         c.CreatedAtUtc,
         c.UpdatedAtUtc);
 
-    private static CustomerPaymentDto MapPaymentToDto(CustomerPayment p) => new(
-        p.Id,
-        p.CustomerId,
-        p.Amount.MinorUnits,
-        p.Method,
-        p.ReferenceNumber,
-        p.PaymentDateUtc,
-        p.ClientTransactionId,
-        p.Notes,
-        p.CreatedByUserId,
-        p.CreatedAtUtc);
+    private static CustomerPaymentDto MapPaymentToDto(CustomerPayment p)
+    {
+        var isCash = p.Method == RetailPOS.Domain.Enums.PaymentMethod.Cash && p.Amount.MinorUnits > 0;
+        var drawerKick = new RetailPOS.Contracts.Hardware.DrawerKickDirective(
+            isCash,
+            isCash ? "CASH_CUSTOMER_REPAYMENT" : null,
+            isCash ? p.Amount.MinorUnits : null);
+
+        return new(
+            p.Id,
+            p.CustomerId,
+            p.Amount.MinorUnits,
+            p.Method,
+            p.ReferenceNumber,
+            p.PaymentDateUtc,
+            p.ClientTransactionId,
+            p.Notes,
+            p.CreatedByUserId,
+            p.CreatedAtUtc,
+            drawerKick);
+    }
 }

@@ -1,3 +1,4 @@
+using System.IO.Ports;
 using RetailPOS.Application.Hardware;
 using RetailPOS.Contracts.Hardware;
 using RetailPOS.Domain.Enums;
@@ -58,8 +59,26 @@ public sealed class TerminalHardwareCoordinator : IAsyncDisposable, IDisposable
                 _ => new SimulatedCashDrawer()
             };
 
-            // Configure weighing scale
-            _scale = new SimulatedWeighingScale();
+            // Configure weighing scale: SerialRs232 creates real SerialComWeighingScale
+            if (config.ScaleConnectionType == ScaleConnectionType.SerialCom)
+            {
+                IScaleProtocolParser parser = config.ScaleProtocol == ScaleProtocol.CasToledo
+                    ? new CasToledoScaleParser()
+                    : new GenericAsciiScaleParser();
+
+                _scale = new SerialComWeighingScale(
+                    config.ScalePortName ?? "COM1",
+                    config.ScaleBaudRate,
+                    config.ScaleDataBits,
+                    (Parity)config.ScaleParity,
+                    (StopBits)config.ScaleStopBits,
+                    parser,
+                    config.ScaleTimeoutMs);
+            }
+            else
+            {
+                _scale = new SimulatedWeighingScale();
+            }
 
             // Configure scanner listener
             _scanner.Dispose();
