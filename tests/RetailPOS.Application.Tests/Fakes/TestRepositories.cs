@@ -1,8 +1,9 @@
-﻿using RetailPOS.Application.Persistence;
+using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Security;
 using RetailPOS.Domain.Entities.Catalog;
 using RetailPOS.Domain.Entities.Configuration;
 using RetailPOS.Domain.Entities.Inventory;
+using RetailPOS.Domain.Entities.Taxes;
 using RetailPOS.Domain.Entities.Terminals;
 using RetailPOS.Domain.Entities.Users;
 using RetailPOS.Domain.Enums;
@@ -98,6 +99,34 @@ public sealed class FakeStoreRepository : IStoreRepository
             CurrentStore = new Store(1, storeName);
         else
             CurrentStore.UpdateStoreName(storeName);
+
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateStoreSettingsAsync(
+        string? storeName,
+        string? address,
+        string? phone,
+        string? taxRegistrationNumber,
+        string? receiptFooterMessage,
+        bool? cashRoundingEnabled,
+        string? timeZoneId,
+        CancellationToken cancellationToken = default)
+    {
+        if (CurrentStore == null)
+        {
+            CurrentStore = new Store(1, storeName ?? "Default Store", address, phone, taxRegistrationNumber, receiptFooterMessage, cashRoundingEnabled: cashRoundingEnabled ?? true, timeZoneId: timeZoneId ?? "India Standard Time");
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(storeName))
+                CurrentStore.UpdateStoreName(storeName);
+            CurrentStore.UpdateDetails(address, phone, taxRegistrationNumber, receiptFooterMessage);
+            if (cashRoundingEnabled.HasValue || !string.IsNullOrWhiteSpace(timeZoneId))
+            {
+                CurrentStore.UpdateBillingSettings(cashRoundingEnabled ?? CurrentStore.CashRoundingEnabled, timeZoneId);
+            }
+        }
 
         return Task.CompletedTask;
     }
@@ -268,4 +297,13 @@ public sealed class FakeCategoryRepository : ICategoryRepository
 
     public Task<bool> TaxCategoryExistsAsync(int taxCategoryId, CancellationToken cancellationToken = default) =>
         Task.FromResult(ValidTaxCategoryIds.Contains(taxCategoryId));
+
+    public Task<TaxCategory?> GetTaxCategoryByIdAsync(int id, CancellationToken cancellationToken = default)
+    {
+        if (!ValidTaxCategoryIds.Contains(id))
+            return Task.FromResult<TaxCategory?>(null);
+
+        var tc = new TaxCategory(id, $"GST_{id}", $"GST {id * 6}%", false, [new TaxComponent("CGST", (decimal)(id * 3)), new TaxComponent("SGST", (decimal)(id * 3))]);
+        return Task.FromResult<TaxCategory?>(tc);
+    }
 }

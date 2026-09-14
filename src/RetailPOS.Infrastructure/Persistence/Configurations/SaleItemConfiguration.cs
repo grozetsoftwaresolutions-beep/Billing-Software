@@ -38,5 +38,11 @@ public sealed class SaleItemConfiguration : IEntityTypeConfiguration<SaleItem>
         builder.Property(i => i.TaxableAmount).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER").IsRequired();
         builder.Property(i => i.TaxAmount).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER").IsRequired();
         builder.Property(i => i.LineTotal).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER").IsRequired();
+
+        builder.HasMany(i => i.TaxComponents)
+            .WithOne()
+            .HasForeignKey(tc => tc.SaleItemId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.Navigation(i => i.TaxComponents).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

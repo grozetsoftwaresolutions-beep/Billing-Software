@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using RetailPOS.Domain.Entities.Configuration;
 using RetailPOS.Domain.Entities.Taxes;
@@ -15,7 +15,7 @@ public static class DatabaseInitializer
         // 2. Apply SQLite runtime pragmas (WAL, foreign keys, busy timeout)
         SqliteConnectionConfigurator.ApplyPragmas(context);
 
-        // 3. Apply schema upgrades if migrating an existing pre-Phase 5 SQLite database
+        // 3. Apply schema upgrades if migrating an existing pre-Phase 5 or pre-Phase 6 SQLite database
         await UpgradeSchemaIfNeededAsync(context, cancellationToken);
 
         // 4. Seed default tax categories if empty (GST 0%, GST 5%, GST 18%, Exempt)
@@ -120,6 +120,115 @@ public static class DatabaseInitializer
 
         // Ensure UK_brands_name index exists with NOCASE
         cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_brands_name ON brands (name COLLATE NOCASE);";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // --- Phase 6 Schema Upgrades ---
+
+        // Check stores table for cash_rounding_enabled and time_zone_id
+        cmd.CommandText = "PRAGMA table_info(stores);";
+        var hasCashRounding = false;
+        var hasTimeZone = false;
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var colName = reader.GetString(1);
+                if (string.Equals(colName, "cash_rounding_enabled", StringComparison.OrdinalIgnoreCase))
+                    hasCashRounding = true;
+                if (string.Equals(colName, "time_zone_id", StringComparison.OrdinalIgnoreCase))
+                    hasTimeZone = true;
+            }
+        }
+
+        if (!hasCashRounding)
+        {
+            cmd.CommandText = "ALTER TABLE stores ADD COLUMN cash_rounding_enabled INTEGER NOT NULL DEFAULT 1;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!hasTimeZone)
+        {
+            cmd.CommandText = "ALTER TABLE stores ADD COLUMN time_zone_id TEXT NOT NULL DEFAULT 'India Standard Time';";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Ensure sale_item_tax_components table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS sale_item_tax_components (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sale_item_id INTEGER NOT NULL REFERENCES sales_items(id) ON DELETE RESTRICT,
+    component_name TEXT(50) NOT NULL,
+    rate_percentage TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    created_at_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_sale_item_tax_components_sale_item_id ON sale_item_tax_components(sale_item_id);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_sale_item_tax_components_item_component ON sale_item_tax_components(sale_item_id, component_name);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Ensure sale_refunds table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS sale_refunds (
+    id TEXT PRIMARY KEY,
+    sale_id TEXT NOT NULL REFERENCES sales_invoices(id) ON DELETE RESTRICT,
+    refund_number TEXT(50) NOT NULL,
+    client_transaction_id TEXT NOT NULL,
+    authorized_by_user_id TEXT NOT NULL REFERENCES users(id),
+    authorized_by_user_name TEXT(100) NOT NULL,
+    terminal_id TEXT NOT NULL REFERENCES terminals(id),
+    refund_method INTEGER NOT NULL,
+    total_refund_amount INTEGER NOT NULL,
+    reason TEXT(250) NOT NULL,
+    created_at_utc TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_sale_refunds_refund_number ON sale_refunds(refund_number);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_sale_refunds_client_tx_id ON sale_refunds(client_transaction_id);
+CREATE INDEX IF NOT EXISTS IX_sale_refunds_sale_id ON sale_refunds(sale_id);
+CREATE INDEX IF NOT EXISTS IX_sale_refunds_authorized_by ON sale_refunds(authorized_by_user_id);
+CREATE INDEX IF NOT EXISTS IX_sale_refunds_created_at ON sale_refunds(created_at_utc);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Ensure sale_refund_items table exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS sale_refund_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    refund_id TEXT NOT NULL REFERENCES sale_refunds(id) ON DELETE CASCADE,
+    sale_item_id INTEGER NOT NULL REFERENCES sales_items(id) ON DELETE RESTRICT,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    quantity_refunded TEXT(50) NOT NULL,
+    refund_amount INTEGER NOT NULL,
+    tax_refund_amount INTEGER NOT NULL,
+    created_at_utc TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_sale_refund_items_refund_id ON sale_refund_items(refund_id);
+CREATE INDEX IF NOT EXISTS IX_sale_refund_items_sale_item_id ON sale_refund_items(sale_item_id);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Check invoice_sequences table for period_date column
+        cmd.CommandText = "PRAGMA table_info(invoice_sequences);";
+        var hasPeriodDate = false;
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var colName = reader.GetString(1);
+                if (string.Equals(colName, "period_date", StringComparison.OrdinalIgnoreCase))
+                    hasPeriodDate = true;
+            }
+        }
+
+        if (!hasPeriodDate)
+        {
+            cmd.CommandText = "ALTER TABLE invoice_sequences ADD COLUMN period_date TEXT(8) NOT NULL DEFAULT '';";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UK_invoice_sequences_name_period ON invoice_sequences(sequence_name, period_date);";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 

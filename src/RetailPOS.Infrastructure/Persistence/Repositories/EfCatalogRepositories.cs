@@ -1,7 +1,8 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Domain.Entities.Catalog;
 using RetailPOS.Domain.Entities.Inventory;
+using RetailPOS.Domain.Entities.Taxes;
 
 namespace RetailPOS.Infrastructure.Persistence.Repositories;
 
@@ -267,5 +268,12 @@ public sealed class EfCategoryRepository : ICategoryRepository
     public async Task<bool> TaxCategoryExistsAsync(int taxCategoryId, CancellationToken cancellationToken = default)
     {
         return await _context.TaxCategories.AnyAsync(t => t.Id == taxCategoryId && t.IsActive, cancellationToken);
+    }
+
+    public async Task<TaxCategory?> GetTaxCategoryByIdAsync(int id, CancellationToken cancellationToken = default)
+    {
+        return await _context.TaxCategories
+            .Include(t => t.Components)
+            .FirstOrDefaultAsync(t => t.Id == id && t.IsActive, cancellationToken);
     }
 }

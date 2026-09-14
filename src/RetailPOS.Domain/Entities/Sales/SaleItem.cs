@@ -1,4 +1,4 @@
-using RetailPOS.Domain.Common;
+﻿using RetailPOS.Domain.Common;
 using RetailPOS.Domain.ValueObjects;
 
 namespace RetailPOS.Domain.Entities.Sales;
@@ -18,6 +18,9 @@ public sealed class SaleItem : BaseEntity<long>
     public Money TaxableAmount { get; private set; }
     public Money TaxAmount { get; private set; }
     public Money LineTotal { get; private set; }
+
+    private readonly List<SaleItemTaxComponent> _taxComponents = [];
+    public IReadOnlyList<SaleItemTaxComponent> TaxComponents => _taxComponents.AsReadOnly();
 
     private SaleItem() { }
 
@@ -51,5 +54,11 @@ public sealed class SaleItem : BaseEntity<long>
         TaxableAmount = taxableAmount;
         TaxAmount = taxAmount;
         LineTotal = lineTotal;
+    }
+
+    public void AddTaxComponent(SaleItemTaxComponent component)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        _taxComponents.Add(component);
     }
 }

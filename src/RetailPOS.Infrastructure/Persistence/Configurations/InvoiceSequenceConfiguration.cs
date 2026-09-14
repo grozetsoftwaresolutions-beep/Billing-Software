@@ -13,6 +13,9 @@ public sealed class InvoiceSequenceConfiguration : IEntityTypeConfiguration<Invo
 
         builder.Property(s => s.SequenceName).HasMaxLength(50).IsRequired();
         builder.Property(s => s.Prefix).HasMaxLength(20).IsRequired();
+        builder.Property(s => s.PeriodDate).HasMaxLength(8).IsRequired();
         builder.Property(s => s.CurrentValue).IsRequired();
+
+        builder.HasIndex(s => new { s.SequenceName, s.PeriodDate }).IsUnique().HasDatabaseName("UK_invoice_sequences_name_period");
     }
 }

@@ -1,5 +1,6 @@
 using RetailPOS.Domain.Entities.Catalog;
 using RetailPOS.Domain.Entities.Inventory;
+using RetailPOS.Domain.Entities.Taxes;
 
 namespace RetailPOS.Application.Persistence;
 
@@ -38,4 +39,5 @@ public interface ICategoryRepository
     Task<Brand?> GetBrandByNameAsync(string name, CancellationToken cancellationToken = default);
     Task AddBrandAsync(Brand brand, CancellationToken cancellationToken = default);
     Task<bool> TaxCategoryExistsAsync(int taxCategoryId, CancellationToken cancellationToken = default);
+    Task<TaxCategory?> GetTaxCategoryByIdAsync(int id, CancellationToken cancellationToken = default);
 }

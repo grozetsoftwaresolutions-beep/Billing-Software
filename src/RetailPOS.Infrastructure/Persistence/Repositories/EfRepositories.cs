@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -169,6 +169,36 @@ public sealed class EfStoreRepository : IStoreRepository
         {
             var newStore = new Store(1, storeName);
             await _context.Stores.AddAsync(newStore, cancellationToken);
+        }
+    }
+
+    public async Task UpdateStoreSettingsAsync(
+        string? storeName,
+        string? address,
+        string? phone,
+        string? taxRegistrationNumber,
+        string? receiptFooterMessage,
+        bool? cashRoundingEnabled,
+        string? timeZoneId,
+        CancellationToken cancellationToken = default)
+    {
+        var store = await GetStoreAsync(cancellationToken);
+        if (store == null)
+        {
+            store = new Store(1, storeName ?? "Retail POS Store");
+            await _context.Stores.AddAsync(store, cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(storeName))
+        {
+            store.UpdateStoreName(storeName);
+        }
+
+        store.UpdateDetails(address, phone, taxRegistrationNumber, receiptFooterMessage);
+
+        if (cashRoundingEnabled.HasValue || !string.IsNullOrWhiteSpace(timeZoneId))
+        {
+            store.UpdateBillingSettings(cashRoundingEnabled ?? store.CashRoundingEnabled, timeZoneId ?? store.TimeZoneId);
         }
     }
 }

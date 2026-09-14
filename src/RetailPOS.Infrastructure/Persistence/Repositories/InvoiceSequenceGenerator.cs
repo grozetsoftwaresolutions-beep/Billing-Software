@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using RetailPOS.Domain.Entities.Configuration;
 
@@ -17,12 +18,15 @@ public sealed class InvoiceSequenceGenerator
 
     public async Task<string> GenerateNextInvoiceNumberAsync(string sequenceName = "DEFAULT_SALE", CancellationToken cancellationToken = default)
     {
+        var periodDate = DateTime.UtcNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        var id = $"{sequenceName.Trim().ToUpperInvariant()}-{periodDate}";
+
         var sequence = await _context.InvoiceSequences
-            .FirstOrDefaultAsync(s => s.Id == sequenceName, cancellationToken);
+            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
 
         if (sequence == null)
         {
-            sequence = new InvoiceSequence(sequenceName, "INV", 0);
+            sequence = new InvoiceSequence(sequenceName, "INV", periodDate, 0);
             _context.InvoiceSequences.Add(sequence);
         }
 

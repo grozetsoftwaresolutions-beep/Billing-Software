@@ -46,10 +46,12 @@ public sealed class SaleInvoiceConfiguration : IEntityTypeConfiguration<SaleInvo
             .WithOne()
             .HasForeignKey(i => i.SaleId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.Navigation(s => s.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.HasMany(s => s.Payments)
             .WithOne()
             .HasForeignKey(p => p.SaleId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.Navigation(s => s.Payments).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

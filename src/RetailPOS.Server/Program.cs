@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Security;
 using RetailPOS.Application.Services;
+using RetailPOS.Domain.Services;
 using RetailPOS.Infrastructure.Backup;
 using RetailPOS.Infrastructure.Persistence;
 using RetailPOS.Infrastructure.Persistence.Repositories;
@@ -79,6 +80,9 @@ builder.Services.AddScoped<IStoreRepository, EfStoreRepository>();
 builder.Services.AddScoped<IProductRepository, EfProductRepository>();
 builder.Services.AddScoped<IInventoryRepository, EfInventoryRepository>();
 builder.Services.AddScoped<ICategoryRepository, EfCategoryRepository>();
+builder.Services.AddScoped<ISaleRepository, EfSaleRepository>();
+builder.Services.AddScoped<ISaleRefundRepository, EfSaleRefundRepository>();
+builder.Services.AddScoped<IInvoiceSequenceRepository, EfInvoiceSequenceRepository>();
 
 // Register cryptographic security and session management
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -93,6 +97,9 @@ builder.Services.AddScoped<ITerminalService, TerminalService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddScoped<IStoreService, StoreService>();
+builder.Services.AddScoped<ISalesService, SalesService>();
+builder.Services.AddScoped<IPricingCalculator, PricingCalculator>();
 
 // Register infrastructure services
 builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>();
@@ -118,6 +125,10 @@ app.MapTerminalEndpoints();
 app.MapProductEndpoints();
 app.MapInventoryEndpoints();
 app.MapCategoryEndpoints();
+
+// Phase 6 Sales, Billing and Store configuration endpoints
+app.MapSaleEndpoints();
+app.MapStoreEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())

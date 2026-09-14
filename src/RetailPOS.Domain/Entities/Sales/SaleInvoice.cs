@@ -1,4 +1,4 @@
-using RetailPOS.Domain.Common;
+﻿using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Domain.ValueObjects;
 
@@ -76,6 +76,33 @@ public sealed class SaleInvoice : BaseEntity<Guid>
     {
         ArgumentNullException.ThrowIfNull(payment);
         _payments.Add(payment);
+    }
+
+    public void ValidatePaymentsReconcile()
+    {
+        if (_items.Count == 0)
+            throw new DomainException("Sale invoice must contain at least one item.", "SALE_ITEMS_REQUIRED");
+
+        if (_payments.Count == 0)
+            throw new DomainException("Sale invoice must contain at least one payment.", "SALE_PAYMENTS_REQUIRED");
+
+        var totalPaidPaise = _payments.Sum(p => p.Amount.MinorUnits);
+        if (totalPaidPaise != FinalPayable.MinorUnits)
+        {
+            throw new DomainException($"Payment total ({totalPaidPaise} paise) does not match invoice payable ({FinalPayable.MinorUnits} paise).", "PAYMENT_TOTAL_MISMATCH");
+        }
+    }
+
+    public void MarkPartiallyRefunded()
+    {
+        Status = SaleStatus.PartiallyRefunded;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void MarkFullyRefunded()
+    {
+        Status = SaleStatus.Refunded;
+        UpdatedAtUtc = DateTime.UtcNow;
     }
 
     public void MarkRefunded(bool partial = false)

@@ -27,6 +27,9 @@ public class RetailDbContext : DbContext
     public DbSet<SaleInvoice> SalesInvoices => Set<SaleInvoice>();
     public DbSet<SaleItem> SalesItems => Set<SaleItem>();
     public DbSet<PaymentRecord> Payments => Set<PaymentRecord>();
+    public DbSet<SaleRefund> SaleRefunds => Set<SaleRefund>();
+    public DbSet<SaleRefundItem> SaleRefundItems => Set<SaleRefundItem>();
+    public DbSet<SaleItemTaxComponent> SaleItemTaxComponents => Set<SaleItemTaxComponent>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<PurchaseInvoice> PurchaseInvoices => Set<PurchaseInvoice>();
     public DbSet<PurchaseItem> PurchaseItems => Set<PurchaseItem>();

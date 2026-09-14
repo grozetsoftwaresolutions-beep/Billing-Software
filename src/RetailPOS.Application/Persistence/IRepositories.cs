@@ -44,4 +44,5 @@ public interface IStoreRepository
 {
     Task<Store?> GetStoreAsync(CancellationToken cancellationToken = default);
     Task UpdateStoreNameAsync(string storeName, CancellationToken cancellationToken = default);
+    Task UpdateStoreSettingsAsync(string? storeName, string? address, string? phone, string? taxRegistrationNumber, string? receiptFooterMessage, bool? cashRoundingEnabled, string? timeZoneId, CancellationToken cancellationToken = default);
 }
