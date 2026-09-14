@@ -1,3 +1,4 @@
+using RetailPOS.Domain.Entities.CashSessions;
 using System.Globalization;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Contracts.Common;
@@ -343,6 +344,19 @@ public sealed class CustomerService : ICustomerService
                     if (cashSession != null)
                     {
                         cashSession.AddCashRepayment(paymentMoney);
+                        var repaymentTx = new CashSessionTransaction(
+                            0,
+                            cashSession.Id,
+                            CashTransactionType.CashRepayment,
+                            paymentMoney,
+                            $"Customer cash repayment for '{customer.Name}'",
+                            Guid.NewGuid(),
+                            userId,
+                            authorizedByUserId: null,
+                            saleInvoiceId: null,
+                            refundId: null,
+                            customerPaymentId: payment.Id);
+                        await _cashSessionRepo.AddTransactionAsync(repaymentTx, cancellationToken);
                     }
                 }
 

@@ -1,3 +1,4 @@
+using RetailPOS.Domain.Entities.CashSessions;
 using RetailPOS.Domain.Entities.Customers;
 using System.Globalization;
 using RetailPOS.Application.Persistence;
@@ -396,7 +397,21 @@ public sealed class SalesService : ISalesService
                     var activeSession = await _cashSessionRepo.GetActiveSessionAsync(terminalId, cancellationToken);
                     if (activeSession != null)
                     {
-                        activeSession.AddCashSale(Money.FromMinorUnits(cashPaidPaise, Currency.INR));
+                        var cashMoney = Money.FromMinorUnits(cashPaidPaise, Currency.INR);
+                        activeSession.AddCashSale(cashMoney);
+                        var cashTx = new CashSessionTransaction(
+                            0,
+                            activeSession.Id,
+                            CashTransactionType.CashSale,
+                            cashMoney,
+                            $"Cash sale invoice {sale.InvoiceNumber}",
+                            Guid.NewGuid(),
+                            cashierId,
+                            authorizedByUserId: null,
+                            saleInvoiceId: sale.Id,
+                            refundId: null,
+                            customerPaymentId: null);
+                        await _cashSessionRepo.AddTransactionAsync(cashTx, cancellationToken);
                     }
                 }
 
@@ -597,6 +612,19 @@ public sealed class SalesService : ISalesService
                     if (activeSession != null)
                     {
                         activeSession.AddCashRefund(refund.TotalRefundAmount);
+                        var refundTx = new CashSessionTransaction(
+                            0,
+                            activeSession.Id,
+                            CashTransactionType.CashRefund,
+                            refund.TotalRefundAmount,
+                            $"Cash refund {refund.RefundNumber}",
+                            Guid.NewGuid(),
+                            authorizedByUserId,
+                            authorizedByUserId: authorizedByUserId,
+                            saleInvoiceId: sale.Id,
+                            refundId: refund.Id,
+                            customerPaymentId: null);
+                        await _cashSessionRepo.AddTransactionAsync(refundTx, cancellationToken);
                     }
                 }
 

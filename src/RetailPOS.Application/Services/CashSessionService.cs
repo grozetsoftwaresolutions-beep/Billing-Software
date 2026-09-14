@@ -127,7 +127,10 @@ public sealed class CashSessionService : ICashSessionService
             request.Reason,
             request.ClientTransactionId,
             userId,
-            authorizedByUserId);
+            authorizedByUserId,
+            request.SaleInvoiceId,
+            request.RefundId,
+            request.CustomerPaymentId);
 
         switch (request.Type)
         {
@@ -299,5 +302,8 @@ public sealed class CashSessionService : ICashSessionService
         tx.ClientTransactionId,
         tx.CreatedByUserId,
         tx.AuthorizedByUserId,
-        tx.TimestampUtc);
+        tx.TimestampUtc,
+        tx.SaleInvoiceId,
+        tx.RefundId,
+        tx.CustomerPaymentId);
 }

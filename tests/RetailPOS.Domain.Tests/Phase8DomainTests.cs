@@ -12,9 +12,17 @@ public sealed class Phase8DomainTests
     [Theory]
     [InlineData("+91 98765-43210", "9876543210")]
     [InlineData("+919876543210", "9876543210")]
+    [InlineData("+91-98765-43210", "9876543210")]
+    [InlineData("0091-9876543210", "9876543210")]
+    [InlineData("0091 98765 43210", "9876543210")]
+    [InlineData("919876543210", "9876543210")]
     [InlineData("09876543210", "9876543210")]
+    [InlineData("0 98765 43210", "9876543210")]
     [InlineData("9876543210", "9876543210")]
     [InlineData("98765 43210", "9876543210")]
+    [InlineData("6876543210", "6876543210")]
+    [InlineData("7876543210", "7876543210")]
+    [InlineData("8876543210", "8876543210")]
     public void Customer_PhoneNormalization_ExtractsTenDigits(string input, string expected)
     {
         var customer = new Customer(Guid.NewGuid(), "Ramesh Kumar", input);
@@ -24,13 +32,154 @@ public sealed class Phase8DomainTests
     [Theory]
     [InlineData("12345")]
     [InlineData("5876543210")]
+    [InlineData("05876543210")]
+    [InlineData("+91 5876543210")]
+    [InlineData("00915876543210")]
     [InlineData("abc9876543210")]
     [InlineData("987654321")]
     [InlineData("98765432100")]
+    [InlineData("987654321a")]
     public void Customer_InvalidPhone_ThrowsDomainException(string invalidPhone)
     {
         var ex = Assert.Throws<DomainException>(() => new Customer(Guid.NewGuid(), "Ramesh Kumar", invalidPhone));
         Assert.Equal("INVALID_PHONE_NUMBER", ex.ErrorCode);
+    }
+
+    [Fact]
+    public void CustomerPayment_CashMethod_ReferenceIsOptional()
+    {
+        var payment1 = new CustomerPayment(
+            Guid.NewGuid(),
+            1,
+            Guid.NewGuid(),
+            Money.FromMinorUnits(5000, Currency.INR),
+            PaymentMethod.Cash,
+            referenceNumber: null,
+            paymentDateUtc: DateTime.UtcNow,
+            clientTransactionId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid());
+
+        Assert.Null(payment1.ReferenceNumber);
+
+        var payment2 = new CustomerPayment(
+            Guid.NewGuid(),
+            1,
+            Guid.NewGuid(),
+            Money.FromMinorUnits(5000, Currency.INR),
+            PaymentMethod.Cash,
+            referenceNumber: "  ",
+            paymentDateUtc: DateTime.UtcNow,
+            clientTransactionId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid());
+
+        Assert.Null(payment2.ReferenceNumber);
+    }
+
+    [Theory]
+    [InlineData(PaymentMethod.Card)]
+    [InlineData(PaymentMethod.UPI)]
+    [InlineData(PaymentMethod.BankTransfer)]
+    [InlineData(PaymentMethod.Cheque)]
+    public void CustomerPayment_NonCashMethods_ReferenceIsMandatory(PaymentMethod method)
+    {
+        // Null or whitespace reference throws DomainException
+        var exNull = Assert.Throws<DomainException>(() => new CustomerPayment(
+            Guid.NewGuid(),
+            1,
+            Guid.NewGuid(),
+            Money.FromMinorUnits(5000, Currency.INR),
+            method,
+            referenceNumber: null,
+            paymentDateUtc: DateTime.UtcNow,
+            clientTransactionId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid()));
+        Assert.Equal("PAYMENT_REFERENCE_REQUIRED", exNull.ErrorCode);
+
+        var exEmpty = Assert.Throws<DomainException>(() => new CustomerPayment(
+            Guid.NewGuid(),
+            1,
+            Guid.NewGuid(),
+            Money.FromMinorUnits(5000, Currency.INR),
+            method,
+            referenceNumber: "   ",
+            paymentDateUtc: DateTime.UtcNow,
+            clientTransactionId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid()));
+        Assert.Equal("PAYMENT_REFERENCE_REQUIRED", exEmpty.ErrorCode);
+
+        // Valid reference succeeds
+        var validPayment = new CustomerPayment(
+            Guid.NewGuid(),
+            1,
+            Guid.NewGuid(),
+            Money.FromMinorUnits(5000, Currency.INR),
+            method,
+            referenceNumber: "REF-12345",
+            paymentDateUtc: DateTime.UtcNow,
+            clientTransactionId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid());
+        Assert.Equal("REF-12345", validPayment.ReferenceNumber);
+    }
+
+    [Fact]
+    public void CashSessionTransaction_PreservesRelationalProvenance()
+    {
+        var sessionId = Guid.NewGuid();
+        var saleId = Guid.NewGuid();
+        var refundId = Guid.NewGuid();
+        var paymentId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        var saleTx = new CashSessionTransaction(
+            0,
+            sessionId,
+            CashTransactionType.CashSale,
+            Money.FromMinorUnits(1000, Currency.INR),
+            "Cash Sale",
+            Guid.NewGuid(),
+            userId,
+            authorizedByUserId: null,
+            saleInvoiceId: saleId,
+            refundId: null,
+            customerPaymentId: null);
+
+        Assert.Equal(saleId, saleTx.SaleInvoiceId);
+        Assert.Null(saleTx.RefundId);
+        Assert.Null(saleTx.CustomerPaymentId);
+
+        var refundTx = new CashSessionTransaction(
+            0,
+            sessionId,
+            CashTransactionType.CashRefund,
+            Money.FromMinorUnits(500, Currency.INR),
+            "Cash Refund",
+            Guid.NewGuid(),
+            userId,
+            authorizedByUserId: userId,
+            saleInvoiceId: saleId,
+            refundId: refundId,
+            customerPaymentId: null);
+
+        Assert.Equal(saleId, refundTx.SaleInvoiceId);
+        Assert.Equal(refundId, refundTx.RefundId);
+        Assert.Null(refundTx.CustomerPaymentId);
+
+        var repayTx = new CashSessionTransaction(
+            0,
+            sessionId,
+            CashTransactionType.CashRepayment,
+            Money.FromMinorUnits(300, Currency.INR),
+            "Cash Repayment",
+            Guid.NewGuid(),
+            userId,
+            authorizedByUserId: null,
+            saleInvoiceId: null,
+            refundId: null,
+            customerPaymentId: paymentId);
+
+        Assert.Null(repayTx.SaleInvoiceId);
+        Assert.Null(repayTx.RefundId);
+        Assert.Equal(paymentId, repayTx.CustomerPaymentId);
     }
 
     [Fact]

@@ -13,6 +13,9 @@ public sealed class CashSessionTransaction : BaseEntity<long>
     public Guid ClientTransactionId { get; private set; }
     public Guid CreatedByUserId { get; private set; }
     public Guid? AuthorizedByUserId { get; private set; }
+    public Guid? SaleInvoiceId { get; private set; }
+    public Guid? RefundId { get; private set; }
+    public Guid? CustomerPaymentId { get; private set; }
     public DateTime TimestampUtc { get; private set; }
 
     private CashSessionTransaction() { }
@@ -25,7 +28,10 @@ public sealed class CashSessionTransaction : BaseEntity<long>
         string reason,
         Guid clientTransactionId,
         Guid createdByUserId,
-        Guid? authorizedByUserId = null)
+        Guid? authorizedByUserId = null,
+        Guid? saleInvoiceId = null,
+        Guid? refundId = null,
+        Guid? customerPaymentId = null)
     {
         if (cashSessionId == Guid.Empty)
             throw new DomainException("Cash session ID is required.", "INVALID_SESSION_ID");
@@ -53,6 +59,9 @@ public sealed class CashSessionTransaction : BaseEntity<long>
         ClientTransactionId = clientTransactionId;
         CreatedByUserId = createdByUserId;
         AuthorizedByUserId = authorizedByUserId;
+        SaleInvoiceId = saleInvoiceId;
+        RefundId = refundId;
+        CustomerPaymentId = customerPaymentId;
         TimestampUtc = DateTime.UtcNow;
         CreatedAtUtc = DateTime.UtcNow;
         UpdatedAtUtc = DateTime.UtcNow;

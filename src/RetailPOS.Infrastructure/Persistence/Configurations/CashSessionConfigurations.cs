@@ -1,3 +1,5 @@
+using RetailPOS.Domain.Entities.Sales;
+using RetailPOS.Domain.Entities.Customers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RetailPOS.Domain.Entities.CashSessions;
@@ -79,6 +81,27 @@ public sealed class CashSessionTransactionConfiguration : IEntityTypeConfigurati
         builder.Property(t => t.TimestampUtc).IsRequired();
         builder.Property(t => t.CreatedAtUtc).IsRequired();
         builder.Property(t => t.UpdatedAtUtc).IsRequired();
+
+        builder.Property(t => t.SaleInvoiceId);
+        builder.HasIndex(t => t.SaleInvoiceId).HasDatabaseName("IX_cash_session_transactions_sale_id");
+        builder.HasOne<SaleInvoice>()
+            .WithMany()
+            .HasForeignKey(t => t.SaleInvoiceId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(t => t.RefundId);
+        builder.HasIndex(t => t.RefundId).HasDatabaseName("IX_cash_session_transactions_refund_id");
+        builder.HasOne<SaleRefund>()
+            .WithMany()
+            .HasForeignKey(t => t.RefundId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(t => t.CustomerPaymentId);
+        builder.HasIndex(t => t.CustomerPaymentId).HasDatabaseName("IX_cash_session_transactions_payment_id");
+        builder.HasOne<CustomerPayment>()
+            .WithMany()
+            .HasForeignKey(t => t.CustomerPaymentId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne<CashSession>()
             .WithMany()

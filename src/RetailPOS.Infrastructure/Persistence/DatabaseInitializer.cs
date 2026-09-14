@@ -712,14 +712,57 @@ CREATE TABLE IF NOT EXISTS cash_session_transactions (
     ClientTransactionId TEXT NOT NULL,
     CreatedByUserId TEXT NOT NULL,
     AuthorizedByUserId TEXT NULL,
+    SaleInvoiceId TEXT NULL REFERENCES sales_invoices(Id) ON DELETE RESTRICT,
+    RefundId TEXT NULL REFERENCES sale_refunds(Id) ON DELETE RESTRICT,
+    CustomerPaymentId TEXT NULL REFERENCES customer_payments(Id) ON DELETE RESTRICT,
     TimestampUtc TEXT NOT NULL,
     CreatedAtUtc TEXT NOT NULL,
     UpdatedAtUtc TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_session_id ON cash_session_transactions(CashSessionId);
 CREATE UNIQUE INDEX IF NOT EXISTS UK_cash_session_transactions_client_tx ON cash_session_transactions(ClientTransactionId);
+CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_sale_id ON cash_session_transactions(SaleInvoiceId) WHERE SaleInvoiceId IS NOT NULL;
+CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_refund_id ON cash_session_transactions(RefundId) WHERE RefundId IS NOT NULL;
+CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_payment_id ON cash_session_transactions(CustomerPaymentId) WHERE CustomerPaymentId IS NOT NULL;
 ";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+                // Check if existing cash_session_transactions table has provenance columns
+        cmd.CommandText = "PRAGMA table_info(cash_session_transactions);";
+        var txColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                txColumns.Add(reader.GetString(1));
+            }
+        }
+
+        if (txColumns.Count > 0)
+        {
+            if (!txColumns.Contains("SaleInvoiceId"))
+            {
+                cmd.CommandText = "ALTER TABLE cash_session_transactions ADD COLUMN SaleInvoiceId TEXT NULL REFERENCES sales_invoices(Id) ON DELETE RESTRICT;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!txColumns.Contains("RefundId"))
+            {
+                cmd.CommandText = "ALTER TABLE cash_session_transactions ADD COLUMN RefundId TEXT NULL REFERENCES sale_refunds(Id) ON DELETE RESTRICT;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!txColumns.Contains("CustomerPaymentId"))
+            {
+                cmd.CommandText = "ALTER TABLE cash_session_transactions ADD COLUMN CustomerPaymentId TEXT NULL REFERENCES customer_payments(Id) ON DELETE RESTRICT;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            cmd.CommandText = @"
+CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_sale_id ON cash_session_transactions(SaleInvoiceId) WHERE SaleInvoiceId IS NOT NULL;
+CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_refund_id ON cash_session_transactions(RefundId) WHERE RefundId IS NOT NULL;
+CREATE INDEX IF NOT EXISTS IX_cash_session_transactions_payment_id ON cash_session_transactions(CustomerPaymentId) WHERE CustomerPaymentId IS NOT NULL;
+";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
 
         // 11. PRAGMA integrity and foreign key checks
         cmd.CommandText = "PRAGMA foreign_key_check;";

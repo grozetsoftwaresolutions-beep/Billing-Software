@@ -244,6 +244,17 @@ public sealed class SqlitePhase8CustomerIntegrationTests : IDisposable
 
             var stock = await verifyContext.StockBalances.FirstAsync(b => b.ProductId == productId);
             Assert.Equal(98m, stock.CurrentQuantity.Value); // Deducted exactly 2 units (100 - 2)
+
+            // Verify exact atomicity and no duplicate records
+            var invoices = await verifyContext.SalesInvoices.Where(s => s.CustomerId == customerId).ToListAsync();
+            Assert.Equal(2, invoices.Count);
+
+            var invoiceIds = invoices.Select(i => i.Id).ToList();
+            var payments = await verifyContext.Payments.Where(p => invoiceIds.Contains(p.SaleId)).ToListAsync();
+            Assert.Equal(2, payments.Count);
+
+            var stockMovements = await verifyContext.StockMovements.Where(m => m.ProductId == productId).ToListAsync();
+            Assert.Equal(2, stockMovements.Count);
         }
     }
 
@@ -693,6 +704,259 @@ public sealed class SqlitePhase8CustomerIntegrationTests : IDisposable
             {
                 try { File.Delete(migrationDbPath); } catch { }
             }
+        }
+    }
+
+    [Fact]
+    public async Task CreditSaleAtomicity_WhenCreditLimitExceeded_NothingPersisted()
+    {
+        Guid customerId = Guid.NewGuid();
+        Guid terminalId;
+        Guid cashierId;
+        Guid productId;
+
+        using (var setupContext = new RetailDbContext(_options))
+        {
+            var (_, terminal, cashier, _, product) = await SeedStandardTestDataAsync(setupContext);
+            cashierId = cashier.Id;
+            terminalId = terminal.Id;
+            productId = product.Id;
+
+            // Customer with CreditLimit = 5,000 paise and OutstandingCredit = 5,000 paise (0 available credit)
+            var customer = new Customer(customerId, "Atomicity Tester", "9876543210", creditLimit: 50m);
+            customer.AddCredit(Money.FromMinorUnits(5000, Currency.INR));
+            setupContext.Customers.Add(customer);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Snapshot existing counts before failed attempt
+        int initialInvoicesCount;
+        int initialPaymentsCount;
+        int initialMovementsCount;
+        decimal initialStockQty;
+        using (var snapContext = new RetailDbContext(_options))
+        {
+            initialInvoicesCount = await snapContext.SalesInvoices.CountAsync();
+            initialPaymentsCount = await snapContext.Payments.CountAsync();
+            initialMovementsCount = await snapContext.StockMovements.CountAsync();
+            initialStockQty = (await snapContext.StockBalances.FirstAsync(b => b.ProductId == productId)).CurrentQuantity.Value;
+        }
+
+        // Attempt a credit sale that exceeds credit limit
+        using (var taskContext = new RetailDbContext(_options))
+        {
+            var (_, _, salesService, _) = CreateServices(taskContext);
+            var req = new CreateSaleRequest(
+                Guid.NewGuid(),
+                new List<CartItemRequest> { new(productId, 1m, DiscountType.None, 0m) },
+                new List<PaymentLineRequest> { new(PaymentMethod.Credit, 42000) },
+                DiscountType.None,
+                0m,
+                customerId);
+
+            var ex = await Assert.ThrowsAsync<DomainException>(() => salesService.CreateSaleAsync(req, cashierId, "Cashier", terminalId));
+            Assert.Equal("CREDIT_LIMIT_EXCEEDED", ex.ErrorCode);
+        }
+
+        // Verify zero persistence across all tables
+        using (var verifyContext = new RetailDbContext(_options))
+        {
+            var customer = await verifyContext.Customers.FindAsync(customerId);
+            Assert.NotNull(customer);
+            Assert.Equal(5000, customer.OutstandingCredit.MinorUnits);
+            Assert.Equal(0, customer.CreditBalance.MinorUnits);
+
+            Assert.Equal(initialInvoicesCount, await verifyContext.SalesInvoices.CountAsync());
+            Assert.Equal(initialPaymentsCount, await verifyContext.Payments.CountAsync());
+            Assert.Equal(initialMovementsCount, await verifyContext.StockMovements.CountAsync());
+            Assert.Equal(initialStockQty, (await verifyContext.StockBalances.FirstAsync(b => b.ProductId == productId)).CurrentQuantity.Value);
+        }
+    }
+
+    [Fact]
+    public async Task CashDrawerMovement_RetainsSourceProvenance_ForSaleRefundAndRepayment()
+    {
+        Guid customerId = Guid.NewGuid();
+        Guid terminalId;
+        Guid cashierId;
+        Guid managerId;
+        Guid productId;
+        Guid sessionId;
+
+        using (var setupContext = new RetailDbContext(_options))
+        {
+            var (_, terminal, cashier, manager, product) = await SeedStandardTestDataAsync(setupContext);
+            cashierId = cashier.Id;
+            managerId = manager.Id;
+            terminalId = terminal.Id;
+            productId = product.Id;
+
+            var customer = new Customer(customerId, "Provenance Tester", "9876543210", creditLimit: 200m);
+            setupContext.Customers.Add(customer);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // 1. Open active session
+        using (var sessionContext = new RetailDbContext(_options))
+        {
+            var (_, cashSessionService, _, _) = CreateServices(sessionContext);
+            var openRes = await cashSessionService.OpenSessionAsync(
+                new OpenCashSessionRequest(terminalId, 10000, "Shift open"),
+                cashierId,
+                "cashier1");
+            Assert.True(openRes.Success);
+            sessionId = openRes.Data!.Id;
+        }
+
+        // 2. Perform Cash Sale -> CashSessionTransaction created with SaleInvoiceId
+        Guid saleId;
+        using (var saleContext = new RetailDbContext(_options))
+        {
+            var (_, _, salesService, _) = CreateServices(saleContext);
+            var saleRes = await salesService.CreateSaleAsync(
+                new CreateSaleRequest(
+                    Guid.NewGuid(),
+                    new List<CartItemRequest> { new(productId, 1m, DiscountType.None, 0m) },
+                    new List<PaymentLineRequest> { new(PaymentMethod.Cash, 42000) },
+                    DiscountType.None,
+                    0m,
+                    customerId),
+                cashierId,
+                "cashier1",
+                terminalId);
+            Assert.True(saleRes.Success);
+            saleId = saleRes.Data!.Id;
+        }
+
+        // 3. Perform Cash Refund -> CashSessionTransaction created with RefundId & SaleInvoiceId
+        Guid refundId;
+        using (var refundContext = new RetailDbContext(_options))
+        {
+            var (_, _, salesService, _) = CreateServices(refundContext);
+
+            var sale = await refundContext.SalesInvoices.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+            var saleItem = sale.Items[0];
+
+            var refundRes = await salesService.RefundSaleAsync(
+                saleId,
+                new RefundSaleRequest(
+                    Guid.NewGuid(),
+                    new List<RefundItemRequest> { new(saleItem.Id, 1m) },
+                    PaymentMethod.Cash,
+                    "Customer returned item"),
+                managerId,
+                "manager1",
+                terminalId);
+            Assert.True(refundRes.Success);
+            refundId = refundRes.Data!.Id;
+        }
+
+        // 4. Perform Cash Repayment -> CashSessionTransaction created with CustomerPaymentId
+        Guid paymentId;
+        using (var repayContext = new RetailDbContext(_options))
+        {
+            var (custService, _, _, _) = CreateServices(repayContext);
+            var repayRes = await custService.RecordPaymentAsync(
+                customerId,
+                new RecordCustomerPaymentRequest(
+                    3000,
+                    PaymentMethod.Cash,
+                    null,
+                    "Cash repayment",
+                    Guid.NewGuid()),
+                cashierId,
+                "cashier1",
+                terminalId);
+            Assert.True(repayRes.Success);
+            paymentId = repayRes.Data!.Id;
+        }
+
+        // 5. Verify transactions in database have exact provenance
+        using (var verifyContext = new RetailDbContext(_options))
+        {
+            var txs = await verifyContext.CashSessionTransactions
+                .Where(t => t.CashSessionId == sessionId)
+                .OrderBy(t => t.Id)
+                .ToListAsync();
+
+            // Sale TX
+            var saleTx = txs.FirstOrDefault(t => t.Type == CashTransactionType.CashSale);
+            Assert.NotNull(saleTx);
+            Assert.Equal(saleId, saleTx.SaleInvoiceId);
+            Assert.Null(saleTx.RefundId);
+            Assert.Null(saleTx.CustomerPaymentId);
+
+            // Refund TX
+            var refundTx = txs.FirstOrDefault(t => t.Type == CashTransactionType.CashRefund);
+            Assert.NotNull(refundTx);
+            Assert.Equal(saleId, refundTx.SaleInvoiceId);
+            Assert.Equal(refundId, refundTx.RefundId);
+            Assert.Null(refundTx.CustomerPaymentId);
+
+            // Repayment TX
+            var repayTx = txs.FirstOrDefault(t => t.Type == CashTransactionType.CashRepayment);
+            Assert.NotNull(repayTx);
+            Assert.Null(repayTx.SaleInvoiceId);
+            Assert.Null(repayTx.RefundId);
+            Assert.Equal(paymentId, repayTx.CustomerPaymentId);
+        }
+    }
+
+    [Fact]
+    public async Task CustomerRepayment_ReferenceInvariants_AllMethodsVerified()
+    {
+        Guid customerId = Guid.NewGuid();
+        Guid cashierId;
+        Guid terminalId;
+
+        using (var setupContext = new RetailDbContext(_options))
+        {
+            var (_, terminal, cashier, _, _) = await SeedStandardTestDataAsync(setupContext);
+            cashierId = cashier.Id;
+            terminalId = terminal.Id;
+
+            var customer = new Customer(customerId, "Method Invariants Tester", "9876543210", creditLimit: 1000m);
+            customer.AddCredit(Money.FromMinorUnits(50000, Currency.INR));
+            setupContext.Customers.Add(customer);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Cash: null reference succeeds
+        using (var context = new RetailDbContext(_options))
+        {
+            var (service, _, _, _) = CreateServices(context);
+            var res = await service.RecordPaymentAsync(
+                customerId,
+                new RecordCustomerPaymentRequest(1000, PaymentMethod.Cash, null, "Cash without ref", Guid.NewGuid()),
+                cashierId,
+                "cashier1",
+                terminalId);
+            Assert.True(res.Success);
+        }
+
+        // Card, UPI, BankTransfer, Cheque: null reference fails with PAYMENT_REFERENCE_REQUIRED
+        var nonCashMethods = new[] { PaymentMethod.Card, PaymentMethod.UPI, PaymentMethod.BankTransfer, PaymentMethod.Cheque };
+        foreach (var method in nonCashMethods)
+        {
+            using var context = new RetailDbContext(_options);
+            var (service, _, _, _) = CreateServices(context);
+
+            var failRes = await service.RecordPaymentAsync(
+                customerId,
+                new RecordCustomerPaymentRequest(1000, method, null, $"{method} without ref", Guid.NewGuid()),
+                cashierId,
+                "cashier1",
+                terminalId);
+            Assert.False(failRes.Success);
+            Assert.Equal("PAYMENT_REFERENCE_REQUIRED", failRes.ErrorCode);
+
+            var successRes = await service.RecordPaymentAsync(
+                customerId,
+                new RecordCustomerPaymentRequest(1000, method, $"TXN-{method}-123", $"{method} with ref", Guid.NewGuid()),
+                cashierId,
+                "cashier1",
+                terminalId);
+            Assert.True(successRes.Success);
         }
     }
 }

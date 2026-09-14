@@ -42,8 +42,8 @@ public sealed class CustomerPayment : BaseEntity<Guid>
         if (method == PaymentMethod.Credit || method == PaymentMethod.Mixed)
             throw new DomainException($"Payment method '{method}' cannot be used for customer repayments.", "INVALID_REPAYMENT_METHOD");
 
-        var trimmedRef = referenceNumber?.Trim();
-        if (method != PaymentMethod.Cash && string.IsNullOrWhiteSpace(trimmedRef))
+        var trimmedRef = string.IsNullOrWhiteSpace(referenceNumber) ? null : referenceNumber.Trim();
+        if (method != PaymentMethod.Cash && trimmedRef == null)
             throw new DomainException($"Reference number is mandatory for {method} customer payments.", "PAYMENT_REFERENCE_REQUIRED");
 
         if (clientTransactionId == Guid.Empty)

@@ -19,7 +19,10 @@ public sealed record AddCashTransactionRequest(
     CashTransactionType Type,
     long AmountPaise,
     string Reason,
-    Guid ClientTransactionId);
+    Guid ClientTransactionId,
+    Guid? SaleInvoiceId = null,
+    Guid? RefundId = null,
+    Guid? CustomerPaymentId = null);
 
 public sealed record CashSessionDto(
     Guid Id,
@@ -53,7 +56,10 @@ public sealed record CashSessionTransactionDto(
     Guid ClientTransactionId,
     Guid CreatedByUserId,
     Guid? AuthorizedByUserId,
-    DateTime TimestampUtc);
+    DateTime TimestampUtc,
+    Guid? SaleInvoiceId = null,
+    Guid? RefundId = null,
+    Guid? CustomerPaymentId = null);
 
 public sealed record CashSessionReportDto(
     CashSessionDto Session,
