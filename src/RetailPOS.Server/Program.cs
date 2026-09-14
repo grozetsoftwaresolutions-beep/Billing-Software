@@ -108,6 +108,8 @@ builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IPurchaseService, PurchaseService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICashSessionService, CashSessionService>();
+builder.Services.AddScoped<IReportRepository, EfReportRepository>();
+builder.Services.AddScoped<IReportService, ReportService>();
 
 // Register infrastructure services
 builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>();
@@ -145,6 +147,9 @@ app.MapPurchaseEndpoints();
 // Phase 8 Customer and Cash Session endpoints
 app.MapCustomerEndpoints();
 app.MapCashSessionEndpoints();
+
+// Phase 9 Reports & Analytics endpoints
+app.MapReportEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())

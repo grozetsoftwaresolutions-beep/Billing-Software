@@ -62,6 +62,12 @@ public sealed class GlobalExceptionMiddleware
     {
         var correlationId = context.Items.TryGetValue(CorrelationIdMiddleware.ItemKey, out var cid) ? cid?.ToString() : null;
 
+        if (context.Response.HasStarted)
+        {
+            _logger.LogUnhandledServerError(correlationId, exception);
+            return;
+        }
+
         context.Response.ContentType = "application/json";
 
         if (exception is DomainException domainEx)
