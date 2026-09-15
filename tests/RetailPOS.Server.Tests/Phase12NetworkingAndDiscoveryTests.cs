@@ -320,37 +320,38 @@ public class Phase12NetworkingAndDiscoveryTests : IDisposable
     {
         var tracker = new TerminalHeartbeatTracker(null!, null!);
         var terminalId = Guid.NewGuid();
+        var referenceTime = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc);
 
-        // 1. Fresh heartbeat (<= 30s) -> Online
-        var onlineStatus = tracker.GetConnectivityStatus(terminalId, DateTime.UtcNow.AddSeconds(-10));
-        Assert.Equal(CounterConnectivityStatus.Online, onlineStatus);
+        // 1. Fresh heartbeat (10s elapsed <= 30s) -> Online
+        var onlineFresh = tracker.GetConnectivityStatus(terminalId, referenceTime.AddSeconds(-10), referenceTime);
+        Assert.Equal(CounterConnectivityStatus.Online, onlineFresh);
 
-        // 2. Exact 30-second boundary (<= 30s) -> Online
-        var exactOnlineStatus = tracker.GetConnectivityStatus(terminalId, DateTime.UtcNow.AddSeconds(-29));
-        Assert.Equal(CounterConnectivityStatus.Online, exactOnlineStatus);
+        // 2. Exactly 30 seconds boundary (elapsed == 30.0s <= 30s) -> Online
+        var exact30Online = tracker.GetConnectivityStatus(terminalId, referenceTime.AddSeconds(-30), referenceTime);
+        Assert.Equal(CounterConnectivityStatus.Online, exact30Online);
 
-        // 3. Just over 30 seconds (> 30s and <= 90s) -> Disconnected
-        var disconnectedJustOver30 = tracker.GetConnectivityStatus(terminalId, DateTime.UtcNow.AddSeconds(-32));
-        Assert.Equal(CounterConnectivityStatus.Disconnected, disconnectedJustOver30);
+        // 3. Just over 30 seconds boundary (elapsed == 30.001s > 30s and <= 90s) -> Disconnected
+        var justOver30Disconnected = tracker.GetConnectivityStatus(terminalId, referenceTime.AddSeconds(-30.001), referenceTime);
+        Assert.Equal(CounterConnectivityStatus.Disconnected, justOver30Disconnected);
 
-        // 4. In the middle of disconnected range (e.g. 60s) -> Disconnected
-        var disconnectedMid = tracker.GetConnectivityStatus(terminalId, DateTime.UtcNow.AddSeconds(-60));
-        Assert.Equal(CounterConnectivityStatus.Disconnected, disconnectedMid);
+        // 4. Middle of disconnected range (elapsed == 60.0s) -> Disconnected
+        var midDisconnected = tracker.GetConnectivityStatus(terminalId, referenceTime.AddSeconds(-60), referenceTime);
+        Assert.Equal(CounterConnectivityStatus.Disconnected, midDisconnected);
 
-        // 5. Exact 90-second boundary (<= 90s) -> Disconnected
-        var exactDisconnected = tracker.GetConnectivityStatus(terminalId, DateTime.UtcNow.AddSeconds(-89));
-        Assert.Equal(CounterConnectivityStatus.Disconnected, exactDisconnected);
+        // 5. Exactly 90 seconds boundary (elapsed == 90.0s <= 90s) -> Disconnected
+        var exact90Disconnected = tracker.GetConnectivityStatus(terminalId, referenceTime.AddSeconds(-90), referenceTime);
+        Assert.Equal(CounterConnectivityStatus.Disconnected, exact90Disconnected);
 
-        // 6. Just over 90 seconds (> 90s) -> Offline
-        var offlineJustOver90 = tracker.GetConnectivityStatus(terminalId, DateTime.UtcNow.AddSeconds(-92));
-        Assert.Equal(CounterConnectivityStatus.Offline, offlineJustOver90);
+        // 6. Just over 90 seconds boundary (elapsed == 90.001s > 90s) -> Offline
+        var justOver90Offline = tracker.GetConnectivityStatus(terminalId, referenceTime.AddSeconds(-90.001), referenceTime);
+        Assert.Equal(CounterConnectivityStatus.Offline, justOver90Offline);
 
         // 7. Long offline (e.g. 5 minutes) -> Offline
-        var offlineLong = tracker.GetConnectivityStatus(terminalId, DateTime.UtcNow.AddMinutes(-5));
+        var offlineLong = tracker.GetConnectivityStatus(terminalId, referenceTime.AddMinutes(-5), referenceTime);
         Assert.Equal(CounterConnectivityStatus.Offline, offlineLong);
 
         // 8. Null heartbeat timestamp -> Offline
-        var offlineNull = tracker.GetConnectivityStatus(terminalId, null);
+        var offlineNull = tracker.GetConnectivityStatus(terminalId, null, referenceTime);
         Assert.Equal(CounterConnectivityStatus.Offline, offlineNull);
     }
 }

@@ -43,7 +43,7 @@ public sealed class TerminalHeartbeatTracker : ITerminalHeartbeatTracker
             now);
     }
 
-    public CounterConnectivityStatus GetConnectivityStatus(Guid terminalId, DateTime? lastHeartbeatUtc = null)
+    public CounterConnectivityStatus GetConnectivityStatus(Guid terminalId, DateTime? lastHeartbeatUtc = null, DateTime? referenceTimeUtc = null)
     {
         DateTime? timestamp = _lastHeartbeats.TryGetValue(terminalId, out var cached)
             ? cached
@@ -52,7 +52,8 @@ public sealed class TerminalHeartbeatTracker : ITerminalHeartbeatTracker
         if (timestamp is null)
             return CounterConnectivityStatus.Offline;
 
-        var elapsed = DateTime.UtcNow - timestamp.Value;
+        var now = referenceTimeUtc ?? DateTime.UtcNow;
+        var elapsed = now - timestamp.Value;
         if (elapsed.TotalSeconds <= 30)
             return CounterConnectivityStatus.Online;
         if (elapsed.TotalSeconds <= 90)
