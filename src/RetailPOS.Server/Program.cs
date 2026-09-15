@@ -1,3 +1,8 @@
+using RetailPOS.Application.Services;
+using RetailPOS.Domain.Entities.Backup;
+using RetailPOS.Infrastructure.Backup;
+using RetailPOS.Infrastructure.Persistence.Interceptors;
+using RetailPOS.Server.BackgroundServices;
 using System.Globalization;
 using System.Net;
 using Microsoft.AspNetCore.Builder;
@@ -9,9 +14,7 @@ using Microsoft.Extensions.Hosting;
 using RetailPOS.Application.Hardware;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Security;
-using RetailPOS.Application.Services;
 using RetailPOS.Domain.Services;
-using RetailPOS.Infrastructure.Backup;
 using RetailPOS.Infrastructure.Hardware;
 using RetailPOS.Infrastructure.Persistence;
 using RetailPOS.Infrastructure.Persistence.Repositories;
@@ -67,10 +70,16 @@ builder.WebHost.ConfigureKestrel(options =>
     }
 });
 
-// Authoritative local SQLite database registration
-builder.Services.AddDbContext<RetailDbContext>(options =>
+// Authoritative local SQLite database registration with Phase 11 Database Maintenance Interceptor
+builder.Services.AddDbContext<RetailDbContext>((sp, options) =>
 {
     options.UseSqlite(serverOptions.BuildSqliteConnectionString());
+    var gate = sp.GetService<IDatabaseOperationGate>();
+    var scope = sp.GetService<IMaintenanceExecutionScope>();
+    if (gate != null && scope != null)
+    {
+        options.AddInterceptors(new DatabaseMaintenanceInterceptor(gate, scope));
+    }
 });
 
 // Register persistence repositories and unit of work
@@ -90,6 +99,22 @@ builder.Services.AddScoped<IPurchaseRepository, EfPurchaseRepository>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
 builder.Services.AddScoped<ICashSessionRepository, EfCashSessionRepository>();
 builder.Services.AddScoped<ITerminalHardwareConfigRepository, TerminalHardwareConfigRepository>();
+
+// Phase 11 Backup, Restore & Disaster Recovery services
+builder.Services.AddSingleton<IDatabaseOperationGate, DatabaseOperationGate>();
+builder.Services.AddSingleton<IDatabaseMaintenanceCoordinator, DatabaseMaintenanceCoordinator>();
+builder.Services.AddSingleton<IBackupOperationCoordinator, BackupOperationCoordinator>();
+builder.Services.AddSingleton<MaintenanceScopeFactory>();
+builder.Services.AddSingleton<IMaintenanceScopeFactory>(sp => sp.GetRequiredService<MaintenanceScopeFactory>());
+builder.Services.AddSingleton<IMaintenanceExecutionScope>(sp => sp.GetRequiredService<MaintenanceScopeFactory>());
+builder.Services.AddSingleton<IStoreIdentityService, StoreIdentityService>();
+builder.Services.AddSingleton<IBackupManifestService, BackupManifestService>();
+builder.Services.AddSingleton<IBackupSettingsStore, JsonBackupSettingsStore>();
+builder.Services.AddScoped<IBackupRepository, EfBackupRepository>();
+builder.Services.AddScoped<IBackupRetentionService, BackupRetentionService>();
+builder.Services.AddScoped<IFilesystemReconciliationEngine, FilesystemReconciliationEngine>();
+builder.Services.AddScoped<IBackupService, BackupService>();
+builder.Services.AddHostedService<ScheduledBackupBackgroundService>();
 
 // Register cryptographic security and session management
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -137,6 +162,7 @@ var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseMiddleware<TerminalValidationMiddleware>();
+app.UseMiddleware<DatabaseMaintenanceMiddleware>();
 
 // Health and monitoring endpoints
 app.MapHealthEndpoints();
@@ -170,11 +196,24 @@ app.MapReportEndpoints();
 app.MapTerminalHardwareConfigEndpoints();
 app.MapHardwareEndpoints();
 
+// Phase 11 Backup, Restore and Recovery endpoints
+app.MapBackupEndpoints();
+app.MapAdminRecoveryEndpoints();
+
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
     await DatabaseInitializer.InitializeDatabaseAsync(db);
+
+    // Phase 11 Filesystem Crash Reconciliation & Store Identity initialization
+    var reconciler = scope.ServiceProvider.GetRequiredService<IFilesystemReconciliationEngine>();
+    await reconciler.ReconcileStartupAsync();
+
+    var storeRepo = scope.ServiceProvider.GetRequiredService<IStoreRepository>();
+    var store = await storeRepo.GetStoreAsync();
+    var storeIdentity = scope.ServiceProvider.GetRequiredService<IStoreIdentityService>();
+    await storeIdentity.InitializeOrLoadAsync(store != null ? Guid.Parse("11111111-1111-1111-1111-111111111111") : Guid.NewGuid(), store?.StoreName ?? "Default Store");
 }
 
 app.Run();

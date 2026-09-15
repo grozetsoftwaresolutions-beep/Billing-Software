@@ -1,0 +1,364 @@
+namespace RetailPOS.Infrastructure.Backup;
+
+using System;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using RetailPOS.Application.Persistence;
+using RetailPOS.Application.Services;
+using RetailPOS.Contracts.Backup;
+using RetailPOS.Domain.Entities.Audit;
+using RetailPOS.Domain.Entities.Backup;
+using RetailPOS.Domain.Enums;
+using RetailPOS.Infrastructure.Persistence;
+
+public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEngine
+{
+    private readonly IDatabaseOperationGate _gate;
+    private readonly IStoreIdentityService _storeIdentity;
+    private readonly IBackupManifestService _manifestService;
+    private readonly IBackupRepository _backupRepo;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly string _dataDir;
+    private readonly string _backupsDir;
+    private readonly string _recoveryMarkerPath;
+
+    public FilesystemReconciliationEngine(
+        IDatabaseOperationGate gate,
+        IStoreIdentityService storeIdentity,
+        IBackupManifestService manifestService,
+        IBackupRepository backupRepo,
+        IUnitOfWork unitOfWork,
+        string? customDataDir = null,
+        string? customBackupsDir = null,
+        string? customRecoveryMarkerPath = null)
+    {
+        _gate = gate;
+        _storeIdentity = storeIdentity;
+        _manifestService = manifestService;
+        _backupRepo = backupRepo;
+        _unitOfWork = unitOfWork;
+
+        _dataDir = customDataDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Data");
+        _backupsDir = customBackupsDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups");
+        var recoveryDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Recovery");
+        _recoveryMarkerPath = customRecoveryMarkerPath ?? Path.Combine(recoveryDir, "restore_state.json");
+    }
+
+    public async Task ReconcileStartupAsync(CancellationToken ct = default)
+    {
+        // 1. Sweep quarantine leftovers
+        SweepQuarantineFiles();
+
+        // 2. Reconcile restore state marker if present
+        await ReconcileRestoreMarkerAsync(ct).ConfigureAwait(false);
+
+        // 3. Reconcile two-file publication crash states
+        await ReconcilePublicationArtifactsAsync(ct).ConfigureAwait(false);
+    }
+
+    private void SweepQuarantineFiles()
+    {
+        var quarantineDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Quarantine");
+        if (Directory.Exists(quarantineDir))
+        {
+            try
+            {
+                var files = Directory.GetFiles(quarantineDir, "quarantine_*");
+                foreach (var file in files)
+                {
+                    try { File.Delete(file); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        if (Directory.Exists(_dataDir))
+        {
+            try
+            {
+                var tmpFiles = Directory.GetFiles(_dataDir, "*.tmp_install*");
+                foreach (var file in tmpFiles)
+                {
+                    try { File.Delete(file); } catch { }
+                }
+            }
+            catch { }
+        }
+    }
+
+    private async Task ReconcileRestoreMarkerAsync(CancellationToken ct)
+    {
+        if (!File.Exists(_recoveryMarkerPath))
+        {
+            return;
+        }
+
+        RestoreStateMarker? marker = null;
+        try
+        {
+            var json = await File.ReadAllTextAsync(_recoveryMarkerPath, ct).ConfigureAwait(false);
+            marker = JsonSerializer.Deserialize<RestoreStateMarker>(json);
+        }
+        catch
+        {
+            _gate.TransitionToEmergencyLockdown("Corrupted recovery marker detected on startup.");
+            return;
+        }
+
+        if (marker == null)
+        {
+            _gate.TransitionToEmergencyLockdown("Null recovery marker detected on startup.");
+            return;
+        }
+
+        var primaryDbPath = Path.Combine(_dataDir, "grozet_pos.db");
+        var primaryWalPath = $"{primaryDbPath}-wal";
+        var primaryShmPath = $"{primaryDbPath}-shm";
+        var rollbackDbPath = $"{primaryDbPath}.rollback_staging";
+        var rollbackWalPath = $"{primaryDbPath}-wal.rollback_staging";
+        var tmpInstallPath = $"{primaryDbPath}.tmp_install";
+        var safetySnapshotPath = marker.SafetySnapshotPath;
+
+        switch (marker.State)
+        {
+            case "Prepared":
+                if (File.Exists(safetySnapshotPath)) try { File.Delete(safetySnapshotPath); } catch { }
+                DeleteMarker();
+                _gate.TransitionToAvailable();
+                break;
+
+            case "SafetySnapshotCreated":
+                // Row 3: Split DB/WAL move state!
+                // Crash after DB move, before WAL move: Rollback DB exists; Primary WAL exists; Primary DB missing
+                if (File.Exists(rollbackDbPath) && File.Exists(primaryWalPath) && !File.Exists(primaryDbPath))
+                {
+                    // Split state! Do NOT guess. Restore verified standalone Safety Snapshot.
+                    // Explicitly eliminate orphan Primary WAL, Primary SHM, Rollback DB, and all staging sidecars.
+                    if (File.Exists(safetySnapshotPath) && VerifySqliteFile(safetySnapshotPath))
+                    {
+                        if (File.Exists(primaryWalPath)) try { File.Delete(primaryWalPath); } catch { }
+                        if (File.Exists(primaryShmPath)) try { File.Delete(primaryShmPath); } catch { }
+                        if (File.Exists(rollbackDbPath)) try { File.Delete(rollbackDbPath); } catch { }
+                        if (File.Exists(rollbackWalPath)) try { File.Delete(rollbackWalPath); } catch { }
+                        if (File.Exists(tmpInstallPath)) try { File.Delete(tmpInstallPath); } catch { }
+
+                        File.Copy(safetySnapshotPath, primaryDbPath, overwrite: true);
+                        DeleteMarker();
+                        _gate.TransitionToAvailable();
+                        return;
+                    }
+                    else
+                    {
+                        _gate.TransitionToEmergencyLockdown("Row 3 split state detected but safety snapshot is missing or invalid.");
+                        return;
+                    }
+                }
+
+                // Row 4: Paired rollback set exists (Rollback DB & Rollback WAL exist, Primary DB missing)
+                if (File.Exists(rollbackDbPath) && File.Exists(rollbackWalPath) && !File.Exists(primaryDbPath))
+                {
+                    File.Move(rollbackDbPath, primaryDbPath, overwrite: true);
+                    File.Move(rollbackWalPath, primaryWalPath, overwrite: true);
+                    DeleteMarker();
+                    _gate.TransitionToAvailable();
+                    return;
+                }
+
+                // Normal SafetySnapshotCreated: Active DB intact; Safety Snapshot verified
+                if (File.Exists(primaryDbPath))
+                {
+                    DeleteMarker();
+                    _gate.TransitionToAvailable();
+                    return;
+                }
+                break;
+
+            case "ProductionDbStaged":
+            case "TargetInstalled":
+                if (File.Exists(rollbackDbPath))
+                {
+                    if (File.Exists(primaryDbPath)) try { File.Delete(primaryDbPath); } catch { }
+                    if (File.Exists(primaryWalPath)) try { File.Delete(primaryWalPath); } catch { }
+                    if (File.Exists(primaryShmPath)) try { File.Delete(primaryShmPath); } catch { }
+                    if (File.Exists(tmpInstallPath)) try { File.Delete(tmpInstallPath); } catch { }
+
+                    File.Move(rollbackDbPath, primaryDbPath, overwrite: true);
+                    if (File.Exists(rollbackWalPath))
+                    {
+                        File.Move(rollbackWalPath, primaryWalPath, overwrite: true);
+                    }
+                    DeleteMarker();
+                    _gate.TransitionToAvailable();
+                    return;
+                }
+                else if (File.Exists(safetySnapshotPath) && VerifySqliteFile(safetySnapshotPath))
+                {
+                    File.Copy(safetySnapshotPath, primaryDbPath, overwrite: true);
+                    DeleteMarker();
+                    _gate.TransitionToAvailable();
+                    return;
+                }
+                break;
+
+            case "MigrationStarted":
+            case "MigrationCompleted":
+            case "VerificationStarted":
+                if (File.Exists(safetySnapshotPath) && VerifySqliteFile(safetySnapshotPath))
+                {
+                    if (File.Exists(primaryDbPath)) try { File.Delete(primaryDbPath); } catch { }
+                    if (File.Exists(primaryWalPath)) try { File.Delete(primaryWalPath); } catch { }
+                    if (File.Exists(primaryShmPath)) try { File.Delete(primaryShmPath); } catch { }
+                    if (File.Exists(rollbackDbPath)) try { File.Delete(rollbackDbPath); } catch { }
+                    if (File.Exists(rollbackWalPath)) try { File.Delete(rollbackWalPath); } catch { }
+                    if (File.Exists(tmpInstallPath)) try { File.Delete(tmpInstallPath); } catch { }
+
+                    File.Copy(safetySnapshotPath, primaryDbPath, overwrite: true);
+                    DeleteMarker();
+                    _gate.TransitionToAvailable();
+                    return;
+                }
+                else
+                {
+                    _gate.TransitionToEmergencyLockdown($"Restoration interrupted at {marker.State} and safety snapshot is unreadable.");
+                    return;
+                }
+
+            case "VerificationCompleted":
+            case "Finalized":
+                if (File.Exists(rollbackDbPath)) try { File.Delete(rollbackDbPath); } catch { }
+                if (File.Exists(rollbackWalPath)) try { File.Delete(rollbackWalPath); } catch { }
+                if (File.Exists(tmpInstallPath)) try { File.Delete(tmpInstallPath); } catch { }
+
+                DeleteMarker();
+                _gate.TransitionToAvailable();
+                return;
+        }
+
+        _gate.TransitionToEmergencyLockdown("Ambiguous recovery marker and physical file state on startup.");
+    }
+
+    private void DeleteMarker()
+    {
+        try
+        {
+            if (File.Exists(_recoveryMarkerPath))
+            {
+                File.Delete(_recoveryMarkerPath);
+            }
+        }
+        catch { }
+    }
+
+    private async Task ReconcilePublicationArtifactsAsync(CancellationToken ct)
+    {
+        if (!Directory.Exists(_backupsDir)) return;
+
+        var signingKey = _storeIdentity.GetStoreSigningKey();
+        var dbFiles = Directory.GetFiles(_backupsDir, "*.db");
+
+        foreach (var dbFile in dbFiles)
+        {
+            var fileName = Path.GetFileName(dbFile);
+            if (fileName.StartsWith("grozet_pos_safety_snapshot_", StringComparison.OrdinalIgnoreCase) ||
+                fileName.StartsWith("safety_snapshot", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var manifestPath = $"{dbFile}.manifest";
+
+            if (!File.Exists(manifestPath))
+            {
+                try { File.Delete(dbFile); } catch { }
+                var record = await _backupRepo.GetByFileNameAsync(fileName, ct).ConfigureAwait(false);
+                if (record != null && record.Status != BackupStatus.Failed)
+                {
+                    record.Status = BackupStatus.Failed;
+                    record.FileState = FileState.Missing;
+                    record.ErrorMessage = "Orphan database file without companion manifest.";
+                    await _backupRepo.UpdateAsync(record, ct).ConfigureAwait(false);
+                }
+                continue;
+            }
+
+            var manifest = await _manifestService.LoadManifestAsync(manifestPath, ct).ConfigureAwait(false);
+            if (manifest == null || !_manifestService.VerifySignature(manifest, signingKey) || !VerifySqliteFile(dbFile))
+            {
+                try { File.Delete(dbFile); } catch { }
+                try { File.Delete(manifestPath); } catch { }
+                continue;
+            }
+
+            var existingRecord = await _backupRepo.GetByFileNameAsync(fileName, ct).ConfigureAwait(false);
+            if (existingRecord == null)
+            {
+                var newRecord = new BackupRecord
+                {
+                    BackupOperationId = manifest.BackupOperationId != Guid.Empty ? manifest.BackupOperationId : Guid.NewGuid(),
+                    FileName = fileName,
+                    FilePath = dbFile,
+                    SizeBytes = manifest.SizeBytes,
+                    DatabaseSha256 = manifest.DatabaseSha256,
+                    Type = Enum.TryParse<BackupType>(manifest.Type, out var parsedType) ? parsedType : BackupType.Manual,
+                    Status = BackupStatus.Succeeded,
+                    FileState = FileState.Active,
+                    Origin = BackupOrigin.LocalGenerated,
+                    StoreId = manifest.StoreId,
+                    StoreName = manifest.StoreName,
+                    AppVersion = manifest.AppVersion,
+                    SchemaVersion = manifest.SchemaVersion,
+                    CreatedAtUtc = manifest.CreatedAtUtc,
+                    CompletedAtUtc = DateTime.UtcNow,
+                    TriggeredByUserId = "SYSTEM_RECONCILIATION",
+                    TriggeredByUserName = "System Startup Reconciliation"
+                };
+                await _backupRepo.InsertAsync(newRecord, ct).ConfigureAwait(false);
+            }
+        }
+
+        var manifestFiles = Directory.GetFiles(_backupsDir, "*.manifest");
+        foreach (var manifestFile in manifestFiles)
+        {
+            var dbFile = manifestFile.Substring(0, manifestFile.Length - ".manifest".Length);
+            if (!File.Exists(dbFile))
+            {
+                try { File.Delete(manifestFile); } catch { }
+            }
+        }
+
+        await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    private static bool VerifySqliteFile(string filePath)
+    {
+        if (!File.Exists(filePath)) return false;
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            byte[] header = new byte[16];
+            int read = stream.Read(header, 0, 16);
+            if (read < 16) return false;
+            var magic = System.Text.Encoding.ASCII.GetString(header);
+            return magic.StartsWith("SQLite format 3", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public sealed class RestoreStateMarker
+    {
+        public Guid RestoreOperationId { get; set; }
+        public string State { get; set; } = string.Empty;
+        public string SafetySnapshotPath { get; set; } = string.Empty;
+        public string TargetBackupPath { get; set; } = string.Empty;
+        public DateTime TimestampUtc { get; set; }
+        public string Mac { get; set; } = string.Empty;
+    }
+}

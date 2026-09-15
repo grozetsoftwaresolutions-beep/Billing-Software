@@ -1,3 +1,4 @@
+using RetailPOS.Domain.Entities.Backup;
 using Microsoft.EntityFrameworkCore;
 using RetailPOS.Domain.Entities.Audit;
 using RetailPOS.Domain.Entities.Catalog;
@@ -44,6 +45,7 @@ public class RetailDbContext : DbContext
     public DbSet<RetailPOS.Domain.Entities.Hardware.TerminalHardwareConfig> TerminalHardwareConfigs => Set<RetailPOS.Domain.Entities.Hardware.TerminalHardwareConfig>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<InvoiceSequence> InvoiceSequences => Set<InvoiceSequence>();
+    public DbSet<BackupRecord> Backups => Set<BackupRecord>();
 
     public RetailDbContext(DbContextOptions<RetailDbContext> options)
         : base(options)

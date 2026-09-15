@@ -14,6 +14,7 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
 
         builder.Property(a => a.Action).HasMaxLength(100).IsRequired();
         builder.HasIndex(a => a.Action).HasDatabaseName("IX_audit_logs_action");
+        builder.HasIndex(a => new { a.Action, a.EntityId }).HasDatabaseName("IX_audit_logs_database_restored").HasFilter("Action = 'DATABASE_RESTORED'").IsUnique();
 
         builder.Property(a => a.EntityName).HasMaxLength(100).IsRequired();
         builder.Property(a => a.EntityId).HasMaxLength(100);

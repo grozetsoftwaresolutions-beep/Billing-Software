@@ -822,7 +822,46 @@ CREATE INDEX IF NOT EXISTS IX_terminal_hardware_configs_terminal_id ON terminal_
 ";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-        // 12. PRAGMA integrity and foreign key checks
+                // 12. Ensure Phase 11 Backup & Disaster Recovery schema exists
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS backup_history (
+    BackupOperationId TEXT PRIMARY KEY,
+    FileName TEXT NOT NULL,
+    FilePath TEXT NOT NULL,
+    SizeBytes INTEGER NOT NULL,
+    DatabaseSha256 TEXT NOT NULL,
+    Type INTEGER NOT NULL,
+    Status INTEGER NOT NULL,
+    FileState INTEGER NOT NULL,
+    Origin INTEGER NOT NULL,
+    StoreId TEXT NOT NULL,
+    StoreName TEXT NOT NULL,
+    AppVersion TEXT NOT NULL,
+    SchemaVersion INTEGER NOT NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    CompletedAtUtc TEXT NULL,
+    ErrorMessage TEXT NULL,
+    TriggeredByUserId TEXT NOT NULL,
+    TriggeredByUserName TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS IX_backup_history_created_at ON backup_history(CreatedAtUtc);
+CREATE INDEX IF NOT EXISTS IX_backup_history_status ON backup_history(Status);
+CREATE INDEX IF NOT EXISTS IX_backup_history_type ON backup_history(Type);
+CREATE INDEX IF NOT EXISTS IX_backup_history_file_state ON backup_history(FileState);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_backup_history_filename ON backup_history(FileName);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Check if audit_logs table exists before creating partial unique index
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit_logs';";
+        var auditLogsExists = (await cmd.ExecuteScalarAsync(cancellationToken)) != null;
+        if (auditLogsExists)
+        {
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_audit_logs_database_restored ON audit_logs(Action, EntityId) WHERE Action = 'DATABASE_RESTORED';";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 13. PRAGMA integrity and foreign key checks
         cmd.CommandText = "PRAGMA foreign_key_check;";
         using (var fkReader = await cmd.ExecuteReaderAsync(cancellationToken))
         {
