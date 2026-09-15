@@ -852,12 +852,122 @@ CREATE UNIQUE INDEX IF NOT EXISTS UK_backup_history_filename ON backup_history(F
 ";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
 
+        // Phase 12: Terminal schema upgrades & terminal_enrollment_tokens table
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS terminals (
+    Id TEXT PRIMARY KEY NOT NULL,
+    TerminalCode TEXT(50) NOT NULL,
+    TerminalName TEXT(100) NOT NULL,
+    ReceiptPrinterName TEXT(100) NULL,
+    IsActive INTEGER NOT NULL DEFAULT 1,
+    Status INTEGER NOT NULL DEFAULT 1,
+    PairingTokenHash TEXT(64) NULL,
+    MachineName TEXT(100) NULL,
+    ClientIpAddress TEXT(50) NULL,
+    LastHeartbeatUtc TEXT NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS UK_terminals_terminal_code ON terminals(TerminalCode);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        var terminalColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        cmd.CommandText = "PRAGMA table_info(terminals);";
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                terminalColumns.Add(reader.GetString(1));
+            }
+        }
+
+        if (!terminalColumns.Contains("Status"))
+        {
+            cmd.CommandText = "ALTER TABLE terminals ADD COLUMN Status INTEGER NOT NULL DEFAULT 1;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!terminalColumns.Contains("PairingTokenHash"))
+        {
+            cmd.CommandText = "ALTER TABLE terminals ADD COLUMN PairingTokenHash TEXT NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!terminalColumns.Contains("MachineName"))
+        {
+            cmd.CommandText = "ALTER TABLE terminals ADD COLUMN MachineName TEXT NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!terminalColumns.Contains("ClientIpAddress"))
+        {
+            cmd.CommandText = "ALTER TABLE terminals ADD COLUMN ClientIpAddress TEXT NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (!terminalColumns.Contains("LastHeartbeatUtc"))
+        {
+            cmd.CommandText = "ALTER TABLE terminals ADD COLUMN LastHeartbeatUtc TEXT NULL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Database Normalization: Keep IsActive synchronized with Status
+        cmd.CommandText = "UPDATE terminals SET IsActive = CASE WHEN Status = 1 THEN 1 ELSE 0 END;";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Create terminal_enrollment_tokens table with purpose and binding constraints
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS terminal_enrollment_tokens (
+    Id TEXT PRIMARY KEY NOT NULL,
+    TokenHash TEXT NOT NULL UNIQUE,
+    TokenPurpose TEXT NOT NULL,
+    BoundTerminalId TEXT NULL,
+    BoundServerId TEXT NULL,
+    BoundServerFingerprint TEXT NULL,
+    ExpiresAtUtc TEXT NOT NULL,
+    IsConsumed INTEGER NOT NULL DEFAULT 0,
+    ConsumedAtUtc TEXT NULL,
+    IsRevoked INTEGER NOT NULL DEFAULT 0,
+    RevokedAtUtc TEXT NULL,
+    CreatedAtUtc TEXT NOT NULL,
+    CreatedByUserId TEXT NOT NULL,
+    UpdatedAtUtc TEXT NOT NULL,
+
+    CONSTRAINT FK_terminal_enrollment_tokens_terminals
+        FOREIGN KEY (BoundTerminalId) REFERENCES terminals(Id) ON DELETE SET NULL,
+
+    CONSTRAINT CK_terminal_enrollment_tokens_purpose
+        CHECK (TokenPurpose IN ('NewEnrollment', 'ExistingTerminalRepair', 'ServerIdentityRePinning')),
+
+    CONSTRAINT CK_terminal_enrollment_tokens_terminal_binding
+        CHECK (
+            (TokenPurpose = 'NewEnrollment' AND BoundTerminalId IS NULL) OR
+            (TokenPurpose IN ('ExistingTerminalRepair', 'ServerIdentityRePinning') AND BoundTerminalId IS NOT NULL)
+        ),
+
+    CONSTRAINT CK_terminal_enrollment_tokens_server_binding
+        CHECK (
+            (TokenPurpose != 'ServerIdentityRePinning' AND BoundServerId IS NULL AND BoundServerFingerprint IS NULL) OR
+            (
+                TokenPurpose = 'ServerIdentityRePinning' AND
+                BoundServerId IS NOT NULL AND
+                BoundServerFingerprint IS NOT NULL AND
+                length(BoundServerFingerprint) = 64 AND
+                NOT (BoundServerFingerprint GLOB '*[^0-9A-F]*')
+            )
+        )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS IX_terminal_enrollment_tokens_hash ON terminal_enrollment_tokens(TokenHash);
+CREATE INDEX IF NOT EXISTS IX_terminal_enrollment_tokens_bound_terminal ON terminal_enrollment_tokens(BoundTerminalId);
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
         // Check if audit_logs table exists before creating partial unique index
         cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit_logs';";
         var auditLogsExists = (await cmd.ExecuteScalarAsync(cancellationToken)) != null;
         if (auditLogsExists)
         {
             cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_audit_logs_database_restored ON audit_logs(Action, EntityId) WHERE Action = 'DATABASE_RESTORED';";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+            cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_audit_logs_server_identity_reconciled ON audit_logs(EntityName, EntityId, Action) WHERE EntityName = 'ServerIdentity' AND Action = 'SERVER_IDENTITY_PROVISIONED_RECONCILED_POST_CRASH';";
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 

@@ -12,11 +12,15 @@ namespace RetailPOS.Server.Tests;
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _dbPath;
+    private readonly string _dataDir;
     public string DatabasePath => _dbPath;
 
     public CustomWebApplicationFactory()
     {
-        _dbPath = Path.Combine(Path.GetTempPath(), $"retailpos_test_{Guid.NewGuid():N}.db");
+        var id = Guid.NewGuid().ToString("N");
+        _dataDir = Path.Combine(Path.GetTempPath(), $"retailpos_test_dir_{id}");
+        Directory.CreateDirectory(_dataDir);
+        _dbPath = Path.Combine(_dataDir, $"retailpos_test_{id}.db");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -27,9 +31,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ServerConfiguration:DataDirectory"] = Path.GetTempPath(),
-                ["ServerConfiguration:LogsDirectory"] = Path.GetTempPath(),
-                ["ServerConfiguration:BackupsDirectory"] = Path.GetTempPath(),
+                ["ServerConfiguration:DataDirectory"] = _dataDir,
+                ["ServerConfiguration:LogsDirectory"] = _dataDir,
+                ["ServerConfiguration:BackupsDirectory"] = _dataDir,
                 ["ServerConfiguration:DatabaseFileName"] = Path.GetFileName(_dbPath),
                 ["ServerConfiguration:StoreId"] = "STORE-TEST-001",
                 ["ServerConfiguration:StoreName"] = "Grozet Test Store",
@@ -79,11 +83,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing && File.Exists(_dbPath))
+        if (disposing && Directory.Exists(_dataDir))
         {
             try
             {
-                File.Delete(_dbPath);
+                Directory.Delete(_dataDir, recursive: true);
             }
             catch
             {

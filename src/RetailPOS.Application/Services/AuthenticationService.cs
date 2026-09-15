@@ -21,6 +21,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher _passwordHasher;
     private readonly ISessionManager _sessionManager;
+    private readonly IServerIdentityService? _serverIdentityService;
 
     public AuthenticationService(
         IUserRepository userRepo,
@@ -29,7 +30,8 @@ public sealed class AuthenticationService : IAuthenticationService
         IStoreRepository storeRepo,
         IUnitOfWork unitOfWork,
         IPasswordHasher passwordHasher,
-        ISessionManager sessionManager)
+        ISessionManager sessionManager,
+        IServerIdentityService? serverIdentityService = null)
     {
         _userRepo = userRepo;
         _terminalRepo = terminalRepo;
@@ -38,6 +40,7 @@ public sealed class AuthenticationService : IAuthenticationService
         _unitOfWork = unitOfWork;
         _passwordHasher = passwordHasher;
         _sessionManager = sessionManager;
+        _serverIdentityService = serverIdentityService;
     }
 
     public async Task<SetupStatusResponse> GetSetupStatusAsync(CancellationToken cancellationToken = default)
@@ -90,6 +93,18 @@ public sealed class AuthenticationService : IAuthenticationService
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
+
+            if (_serverIdentityService != null)
+            {
+                try
+                {
+                    await _serverIdentityService.ProvisionInitialIdentityAsync(cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    throw new DomainException($"PROVISION_FAILED: {ex.GetType().Name} - {ex.Message} - {ex.StackTrace}", "PROVISION_FAILED");
+                }
+            }
 
             return ApiResponse.Ok<object>(new { Message = "Store owner account configured successfully." });
         }

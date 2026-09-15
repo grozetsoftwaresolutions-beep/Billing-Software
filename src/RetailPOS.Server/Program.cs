@@ -1,3 +1,4 @@
+using RetailPOS.Infrastructure.Networking;
 using RetailPOS.Application.Services;
 using RetailPOS.Domain.Entities.Backup;
 using RetailPOS.Infrastructure.Backup;
@@ -139,6 +140,24 @@ builder.Services.AddScoped<ICashSessionService, CashSessionService>();
 builder.Services.AddScoped<IReportRepository, EfReportRepository>();
 builder.Services.AddScoped<IReportService, ReportService>();
 
+// Phase 12 Multi-Counter Networking, Terminal Registration & Concurrency Hardening
+builder.Services.AddSingleton<ITerminalHeartbeatTracker, TerminalHeartbeatTracker>();
+builder.Services.AddSingleton<INetworkDiagnosticsService, NetworkDiagnosticsService>();
+builder.Services.AddScoped<IServerIdentityService>(sp =>
+{
+    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>().Value;
+    var securityDir = Path.Combine(options.DataDirectory, "Security");
+    return new ServerIdentityService(
+        sp.GetService<Microsoft.EntityFrameworkCore.IDbContextFactory<RetailDbContext>>(),
+        sp.GetService<RetailDbContext>(),
+        sp.GetService<IStoreIdentityService>(),
+        sp.GetService<IAuditLogRepository>(),
+        customSecurityDir: securityDir);
+});
+builder.Services.AddScoped<ITerminalEnrollmentTokenRepository, EfTerminalEnrollmentTokenRepository>();
+builder.Services.AddScoped<ITerminalEnrollmentService, TerminalEnrollmentService>();
+builder.Services.AddHostedService<UdpServerDiscoveryListener>();
+
 // Phase 10 Hardware Services and Hardware Adapters (Simulated for default server environment)
 builder.Services.AddScoped<ITerminalHardwareConfigService, TerminalHardwareConfigService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>();
@@ -161,11 +180,13 @@ var app = builder.Build();
 // Pipeline middleware order: Correlation ID -> Global Exceptions -> Terminal Validation
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseMiddleware<LoopbackRecoveryMiddleware>();
 app.UseMiddleware<TerminalValidationMiddleware>();
 app.UseMiddleware<DatabaseMaintenanceMiddleware>();
 
 // Health and monitoring endpoints
 app.MapHealthEndpoints();
+app.MapDiscoveryEndpoints();
 
 // Phase 4 Authentication, User and Terminal management endpoints
 app.MapAuthEndpoints();
@@ -214,6 +235,25 @@ using (var scope = app.Services.CreateScope())
     var store = await storeRepo.GetStoreAsync();
     var storeIdentity = scope.ServiceProvider.GetRequiredService<IStoreIdentityService>();
     await storeIdentity.InitializeOrLoadAsync(store != null ? Guid.Parse("11111111-1111-1111-1111-111111111111") : Guid.NewGuid(), store?.StoreName ?? "Default Store");
+
+    // Phase 12 Server Identity initialization
+    var serverIdentity = scope.ServiceProvider.GetRequiredService<IServerIdentityService>();
+    await serverIdentity.EvaluateStartupStateAsync();
+}
+
+if (args.Contains("--provision-replacement-identity"))
+{
+    using var cliScope = app.Services.CreateScope();
+    var serverIdentityCli = cliScope.ServiceProvider.GetRequiredService<IServerIdentityService>();
+    Console.Write("Enter StoreMasterRecoveryKey: ");
+    var key = Console.ReadLine();
+    if (!string.IsNullOrWhiteSpace(key))
+    {
+        var req = new RetailPOS.Contracts.Terminals.ProvisionReplacementIdentityRequestDto(key.Trim());
+        var result = await serverIdentityCli.ProvisionReplacementIdentityAsync(req);
+        Console.WriteLine($"Replacement Identity Provisioned: {result.HumanFingerprint}");
+    }
+    return;
 }
 
 app.Run();
