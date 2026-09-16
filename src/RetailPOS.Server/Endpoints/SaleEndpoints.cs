@@ -255,6 +255,27 @@ public static class SaleEndpoints
         .WithName("ReportReprintFailed")
         .WithSummary("Reports print I/O failure, logs audit event, and leaves ReprintCount unchanged.");
 
+        
+        // Phase 13: Void sale with payment & inventory reconciliation
+        group.MapPost("/{id:guid}/void", async (
+            Guid id,
+            VoidSaleRequest request,
+            HttpContext httpContext,
+            ISalesService salesService,
+            CancellationToken ct) =>
+        {
+            var cashierId = (Guid)httpContext.Items["CurrentUserId"]!;
+            var cashierName = (string)httpContext.Items["CurrentUsername"]!;
+            var sessionHash = (string?)(httpContext.Items["CurrentSessionIdentityHash"]) ?? string.Empty;
+            var terminalId = (Guid)(httpContext.Items["CurrentSessionTerminalId"] ?? Guid.Empty);
+
+            var result = await salesService.VoidSaleAsync(id, request, cashierId, cashierName, sessionHash, terminalId, ct);
+            return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+        })
+        .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner)
+        .WithName("VoidSale")
+        .WithSummary("Voids a completed sale invoice with payment and inventory reconciliation.");
+
         return endpoints;
     }
 }

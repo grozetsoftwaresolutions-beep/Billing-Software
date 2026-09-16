@@ -969,6 +969,160 @@ CREATE INDEX IF NOT EXISTS IX_terminal_enrollment_tokens_bound_terminal ON termi
 
             cmd.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_audit_logs_server_identity_reconciled ON audit_logs(EntityName, EntityId, Action) WHERE EntityName = 'ServerIdentity' AND Action = 'SERVER_IDENTITY_PROVISIONED_RECONCILED_POST_CRASH';";
             await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+            // Phase 13 Idempotent Column Additions to audit_logs
+            cmd.CommandText = "PRAGMA table_info(audit_logs);";
+            var existingAuditCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var colReader = await cmd.ExecuteReaderAsync(cancellationToken))
+            {
+                while (await colReader.ReadAsync(cancellationToken))
+                {
+                    existingAuditCols.Add(colReader.GetString(1));
+                }
+            }
+
+            if (!existingAuditCols.Contains("user_name"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN user_name TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("reason"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN reason TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("before_json"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN before_json TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("after_json"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN after_json TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("ip_address"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN ip_address TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("correlation_id"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN correlation_id TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("failsafe_instance_id"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN failsafe_instance_id TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("clear_operation_id"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN clear_operation_id TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingAuditCols.Contains("target_settings_sha256"))
+            {
+                cmd.CommandText = "ALTER TABLE audit_logs ADD COLUMN target_settings_sha256 TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            cmd.CommandText = @"
+CREATE INDEX IF NOT EXISTS IX_audit_logs_user_name ON audit_logs(user_name);
+CREATE INDEX IF NOT EXISTS IX_audit_logs_correlation_id ON audit_logs(correlation_id);
+-- IX_audit_logs_failsafe_recovery
+
+CREATE UNIQUE INDEX IF NOT EXISTS UQ_audit_logs_failsafe_clear
+ON audit_logs(Action, FailsafeInstanceId, ClearOperationId)
+WHERE Action = 'SECURITY_SETTINGS_FAILSAFE_CLEARED' AND (ClearOperationId IS NOT NULL OR clear_operation_id IS NOT NULL);
+
+CREATE TRIGGER IF NOT EXISTS trg_audit_logs_no_update
+BEFORE UPDATE ON audit_logs
+BEGIN
+    SELECT RAISE(ABORT, 'audit_logs entries are immutable and cannot be updated');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_audit_logs_no_delete
+BEFORE DELETE ON audit_logs
+BEGIN
+    SELECT RAISE(ABORT, 'audit_logs entries are immutable and cannot be deleted');
+END;
+";
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Phase 13 Column Additions to sales_invoices
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sales_invoices';";
+        var salesInvoicesExists = (await cmd.ExecuteScalarAsync(cancellationToken)) != null;
+        if (salesInvoicesExists)
+        {
+            cmd.CommandText = "PRAGMA table_info(sales_invoices);";
+            var existingInvoiceCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var colReader = await cmd.ExecuteReaderAsync(cancellationToken))
+            {
+                while (await colReader.ReadAsync(cancellationToken))
+                {
+                    existingInvoiceCols.Add(colReader.GetString(1));
+                }
+            }
+
+            if (!existingInvoiceCols.Contains("voided_by_user_id"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_invoices ADD COLUMN voided_by_user_id TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingInvoiceCols.Contains("voided_by_username"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_invoices ADD COLUMN voided_by_username TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingInvoiceCols.Contains("void_reason"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_invoices ADD COLUMN void_reason TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingInvoiceCols.Contains("voided_at_utc"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_invoices ADD COLUMN voided_at_utc TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        // Phase 13 Column Additions to sales_items
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sales_items';";
+        var salesItemsExists = (await cmd.ExecuteScalarAsync(cancellationToken)) != null;
+        if (salesItemsExists)
+        {
+            cmd.CommandText = "PRAGMA table_info(sales_items);";
+            var existingItemCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var colReader = await cmd.ExecuteReaderAsync(cancellationToken))
+            {
+                while (await colReader.ReadAsync(cancellationToken))
+                {
+                    existingItemCols.Add(colReader.GetString(1));
+                }
+            }
+
+            if (!existingItemCols.Contains("is_price_overridden"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_items ADD COLUMN is_price_overridden INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingItemCols.Contains("original_unit_selling_price"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_items ADD COLUMN original_unit_selling_price INTEGER NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingItemCols.Contains("price_override_reason"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_items ADD COLUMN price_override_reason TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingItemCols.Contains("price_override_approved_by_user_id"))
+            {
+                cmd.CommandText = "ALTER TABLE sales_items ADD COLUMN price_override_approved_by_user_id TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
 
         // 13. PRAGMA integrity and foreign key checks

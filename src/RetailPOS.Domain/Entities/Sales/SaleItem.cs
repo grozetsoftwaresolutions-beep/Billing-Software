@@ -1,4 +1,4 @@
-﻿using RetailPOS.Domain.Common;
+using RetailPOS.Domain.Common;
 using RetailPOS.Domain.ValueObjects;
 
 namespace RetailPOS.Domain.Entities.Sales;
@@ -19,6 +19,12 @@ public sealed class SaleItem : BaseEntity<long>
     public Money TaxAmount { get; private set; }
     public Money LineTotal { get; private set; }
 
+    // Price override tracking
+    public bool IsPriceOverridden { get; private set; }
+    public Money? OriginalUnitSellingPrice { get; private set; }
+    public string? PriceOverrideReason { get; private set; }
+    public Guid? PriceOverrideApprovedByUserId { get; private set; }
+
     private readonly List<SaleItemTaxComponent> _taxComponents = [];
     public IReadOnlyList<SaleItemTaxComponent> TaxComponents => _taxComponents.AsReadOnly();
 
@@ -38,7 +44,11 @@ public sealed class SaleItem : BaseEntity<long>
         decimal taxRatePercentage,
         Money taxableAmount,
         Money taxAmount,
-        Money lineTotal)
+        Money lineTotal,
+        bool isPriceOverridden = false,
+        Money? originalUnitSellingPrice = null,
+        string? priceOverrideReason = null,
+        Guid? priceOverrideApprovedByUserId = null)
     {
         Id = id;
         SaleId = saleId;
@@ -54,11 +64,24 @@ public sealed class SaleItem : BaseEntity<long>
         TaxableAmount = taxableAmount;
         TaxAmount = taxAmount;
         LineTotal = lineTotal;
+        IsPriceOverridden = isPriceOverridden;
+        OriginalUnitSellingPrice = originalUnitSellingPrice;
+        PriceOverrideReason = priceOverrideReason;
+        PriceOverrideApprovedByUserId = priceOverrideApprovedByUserId;
     }
 
     public void AddTaxComponent(SaleItemTaxComponent component)
     {
         ArgumentNullException.ThrowIfNull(component);
         _taxComponents.Add(component);
+    }
+
+    public void ApplyPriceOverride(Money originalPrice, string reason, Guid approvedByUserId)
+    {
+        IsPriceOverridden = true;
+        OriginalUnitSellingPrice = originalPrice;
+        PriceOverrideReason = reason?.Trim();
+        PriceOverrideApprovedByUserId = approvedByUserId;
+        UpdatedAtUtc = DateTime.UtcNow;
     }
 }

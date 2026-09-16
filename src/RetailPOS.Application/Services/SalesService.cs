@@ -1,3 +1,4 @@
+using RetailPOS.Domain.Entities.Audit;
 using RetailPOS.Domain.Entities.CashSessions;
 using RetailPOS.Domain.Entities.Customers;
 using System.Globalization;
@@ -31,6 +32,7 @@ public sealed class SalesService : ISalesService
     private readonly IPricingCalculator _pricingCalculator;
     private readonly ICustomerRepository? _customerRepo;
     private readonly ICashSessionRepository? _cashSessionRepo;
+    private readonly RetailPOS.Application.Security.ISupervisorApprovalService? _supervisorApprovalService;
 
     public SalesService(
         ISaleRepository saleRepo,
@@ -44,7 +46,8 @@ public sealed class SalesService : ISalesService
         IUnitOfWork unitOfWork,
         IPricingCalculator? pricingCalculator = null,
         ICustomerRepository? customerRepo = null,
-        ICashSessionRepository? cashSessionRepo = null)
+        ICashSessionRepository? cashSessionRepo = null,
+        RetailPOS.Application.Security.ISupervisorApprovalService? supervisorApprovalService = null)
     {
         _saleRepo = saleRepo;
         _refundRepo = refundRepo;
@@ -58,6 +61,7 @@ public sealed class SalesService : ISalesService
         _pricingCalculator = pricingCalculator ?? new PricingCalculator();
         _customerRepo = customerRepo;
         _cashSessionRepo = cashSessionRepo;
+        _supervisorApprovalService = supervisorApprovalService;
     }
 
     public async Task<ApiResponse<CartCalculationDto>> CalculateCartAsync(
@@ -845,5 +849,191 @@ public sealed class SalesService : ISalesService
             r.CreatedAtUtc,
             itemDtos,
             drawerKick);
+    }
+
+    public async Task<ApiResponse<VoidSaleResponse>> VoidSaleAsync(
+        Guid saleId,
+        VoidSaleRequest request,
+        Guid cashierId,
+        string cashierName,
+        string sessionIdentityHash,
+        Guid terminalId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return ApiResponse.Fail<VoidSaleResponse>("A reason is required to void a sale.", "REASON_REQUIRED");
+        }
+
+        // Verify supervisor authorization before entering transaction
+        if (_supervisorApprovalService != null)
+        {
+            var authResult = await _supervisorApprovalService.AuthorizeInlineOrTokenAsync(
+                request.SupervisorApprovalToken,
+                request.SupervisorUsername,
+                request.SupervisorPin,
+                request.SupervisorPassword,
+                cashierId,
+                sessionIdentityHash,
+                terminalId,
+                Permission.VoidSale,
+                "SaleInvoice",
+                saleId.ToString(),
+                request.RequestNonce,
+                request.Reason,
+                cancellationToken);
+
+            if (!authResult.IsAuthorized)
+            {
+                return ApiResponse.Fail<VoidSaleResponse>(authResult.ErrorMessage ?? "Supervisor approval failed.", "SUPERVISOR_APPROVAL_FAILED");
+            }
+        }
+
+        const int maxRetries = 5;
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            _unitOfWork.ResetChangeTracker();
+            try
+            {
+                await using var tx = await _unitOfWork.BeginSerializableTransactionAsync(cancellationToken);
+
+                var sale = await _saleRepo.GetByIdAsync(saleId, cancellationToken);
+                if (sale == null)
+                {
+                    return ApiResponse.Fail<VoidSaleResponse>("Sale not found.", "SALE_NOT_FOUND");
+                }
+
+                if (sale.Status == SaleStatus.Voided)
+                {
+                    return ApiResponse.Fail<VoidSaleResponse>("Sale has already been voided.", "SALE_ALREADY_VOIDED");
+                }
+
+                // Reverse inventory for each item
+                foreach (var item in sale.Items)
+                {
+                    var product = await _productRepo.GetByIdAsync(item.ProductId, cancellationToken);
+                    var stock = await _inventoryRepo.GetStockBalanceTrackedAsync(item.ProductId, cancellationToken)
+                        ?? throw new DomainException(string.Format(CultureInfo.InvariantCulture, "Stock balance record not found for product '{0}'.", item.ProductName), "STOCK_BALANCE_NOT_FOUND");
+
+                    var qtyVo = item.Quantity;
+                    stock.ApplyMovement(StockMovementType.SaleReturn, qtyVo, NegativeStockPolicy.Disallowed);
+
+                    var returnMovement = new StockMovement(
+                        id: 0,
+                        productId: item.ProductId,
+                        movementType: StockMovementType.SaleReturn,
+                        quantityChanged: qtyVo,
+                        resultingQuantity: stock.CurrentQuantity,
+                        referenceNumber: sale.InvoiceNumber,
+                        reason: string.Format(CultureInfo.InvariantCulture, "Void of invoice {0}: {1}", sale.InvoiceNumber, request.Reason),
+                        userId: cashierId,
+                        terminalId: terminalId);
+
+                    await _inventoryRepo.AddStockMovementAsync(returnMovement, cancellationToken);
+                }
+
+                // Payment Reconciliation
+                long cashReversedPaise = 0;
+                foreach (var payment in sale.Payments)
+                {
+                    if (payment.Method == PaymentMethod.Cash)
+                    {
+                        cashReversedPaise += payment.Amount.MinorUnits;
+                    }
+                    else if (payment.Method == PaymentMethod.Credit && sale.CustomerId.HasValue && _customerRepo != null)
+                    {
+                        var customer = await _customerRepo.GetByIdTrackedAsync(sale.CustomerId.Value, cancellationToken);
+                        if (customer != null)
+                        {
+                            var refundAmount = payment.Amount;
+                            if (customer.OutstandingCredit.MinorUnits >= refundAmount.MinorUnits)
+                            {
+                                customer.RecordRepayment(refundAmount);
+                            }
+                            else
+                            {
+                                var debtReduction = customer.OutstandingCredit;
+                                var excessToStoreCredit = refundAmount - debtReduction;
+                                if (debtReduction.IsPositive)
+                                    customer.RecordRepayment(debtReduction);
+                                if (excessToStoreCredit.IsPositive)
+                                    customer.IncreaseCreditBalance(excessToStoreCredit);
+                            }
+                        }
+                    }
+                }
+
+                // If cash was paid and cash session repo available, record cash refund in drawer session
+                if (cashReversedPaise > 0 && _cashSessionRepo != null)
+                {
+                    var activeSession = await _cashSessionRepo.GetActiveSessionAsync(terminalId, cancellationToken);
+                    if (activeSession != null)
+                    {
+                        var cashMoney = Money.FromMinorUnits(cashReversedPaise, Currency.INR);
+                        activeSession.AddCashRefund(cashMoney);
+                        var refundTx = new CashSessionTransaction(
+                            0,
+                            activeSession.Id,
+                            CashTransactionType.CashRefund,
+                            cashMoney,
+                            $"Void of invoice {sale.InvoiceNumber}",
+                            Guid.NewGuid(),
+                            cashierId,
+                            authorizedByUserId: cashierId,
+                            saleInvoiceId: sale.Id,
+                            refundId: null,
+                            customerPaymentId: null);
+                        await _cashSessionRepo.AddTransactionAsync(refundTx, cancellationToken);
+                    }
+                }
+
+                // Domain transition
+                sale.Void(cashierId, cashierName, request.Reason);
+
+                // Immutable audit log
+                var audit = new AuditLog(
+                    0,
+                    "SALE_VOIDED",
+                    "SaleInvoice",
+                    sale.Id.ToString(),
+                    cashierId,
+                    terminalId,
+                    $"Sale invoice {sale.InvoiceNumber} voided. Cash reversed: {cashReversedPaise} paise. Reason: {request.Reason}",
+                    success: true,
+                    userName: cashierName,
+                    reason: request.Reason,
+                    beforeJson: $"{{\"status\": \"Completed\", \"invoice\": \"{sale.InvoiceNumber}\", \"finalPayable\": {sale.FinalPayable.AmountInMajorUnits}}}",
+                    afterJson: $"{{\"status\": \"Voided\", \"invoice\": \"{sale.InvoiceNumber}\", \"finalPayable\": {sale.FinalPayable.AmountInMajorUnits}}}");
+
+                await _auditRepo.RecordAsync(audit, cancellationToken);
+
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+
+                return ApiResponse.Ok(new VoidSaleResponse(
+                    sale.Id,
+                    sale.InvoiceNumber,
+                    sale.Status,
+                    sale.VoidedAtUtc ?? DateTime.UtcNow,
+                    cashierName,
+                    request.Reason,
+                    StockReversed: true,
+                    CashReversedPaise: cashReversedPaise));
+            }
+            catch (DomainException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (_unitOfWork.IsTransient(ex))
+            {
+                if (attempt == maxRetries)
+                    throw;
+
+                await Task.Delay(Random.Shared.Next(50, 150) * attempt, cancellationToken);
+            }
+        }
+
+        return ApiResponse.Fail<VoidSaleResponse>("Failed to process sale void due to concurrent updates.", "CONCURRENCY_ERROR");
     }
 }

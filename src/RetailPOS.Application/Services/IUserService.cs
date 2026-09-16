@@ -28,4 +28,28 @@ public interface IUserService
         RoleType executingUserRole,
         string executingUsername,
         CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<object>> ChangeUserRoleAsync(
+        Guid targetUserId,
+        RoleType newRole,
+        Guid executingUserId,
+        RoleType executingUserRole,
+        string executingUsername,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<object>> ResetUserCredentialsAsync(
+        Guid targetUserId,
+        string? newPassword,
+        string? newPin,
+        Guid executingUserId,
+        RoleType executingUserRole,
+        string executingUsername,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<object>> UnlockUserAsync(
+        Guid targetUserId,
+        Guid executingUserId,
+        RoleType executingUserRole,
+        string executingUsername,
+        CancellationToken cancellationToken = default);
 }

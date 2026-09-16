@@ -14,17 +14,20 @@ public sealed class UserService : IUserService
     private readonly IAuditLogRepository _auditRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly ISessionManager? _sessionManager;
 
     public UserService(
         IUserRepository userRepo,
         IAuditLogRepository auditRepo,
         IUnitOfWork unitOfWork,
-        IPasswordHasher passwordHasher)
+        IPasswordHasher passwordHasher,
+        ISessionManager? sessionManager = null)
     {
         _userRepo = userRepo;
         _auditRepo = auditRepo;
         _unitOfWork = unitOfWork;
         _passwordHasher = passwordHasher;
+        _sessionManager = sessionManager;
     }
 
     public async Task<IReadOnlyList<UserDto>> GetUsersAsync(CancellationToken cancellationToken = default)
@@ -172,5 +175,126 @@ public sealed class UserService : IUserService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ApiResponse.Ok<object>(new { Message = $"User {targetUser.Username} has been activated." });
+    }
+
+    public async Task<ApiResponse<object>> ChangeUserRoleAsync(
+        Guid targetUserId,
+        RoleType newRole,
+        Guid executingUserId,
+        RoleType executingUserRole,
+        string executingUsername,
+        CancellationToken cancellationToken = default)
+    {
+        if (executingUserRole != RoleType.Owner)
+        {
+            throw new DomainException("Only the Store Owner can change user roles.", "PERMISSION_DENIED");
+        }
+
+        var targetUser = await _userRepo.GetByIdAsync(targetUserId, cancellationToken);
+        if (targetUser == null)
+        {
+            throw new DomainException("Target user was not found.", "USER_NOT_FOUND");
+        }
+
+        if (targetUser.Role == RoleType.Owner && newRole != RoleType.Owner)
+        {
+            var allUsers = await _userRepo.GetAllAsync(cancellationToken);
+            var activeOwnerCount = allUsers.Count(u => u.Role == RoleType.Owner && u.IsActive);
+            if (activeOwnerCount <= 1)
+            {
+                throw new DomainException("Cannot demote the last remaining Store Owner.", "CANNOT_DEMOTE_LAST_OWNER");
+            }
+        }
+
+        var oldRole = targetUser.Role;
+        targetUser.UpdateRole(newRole);
+
+        // Instant session revocation
+        _sessionManager?.RevokeUserSessions(targetUserId);
+
+        await _auditRepo.RecordAsync("Users", "USER_ROLE_CHANGED", executingUsername,
+            $"Changed role of user {targetUser.Username} from {oldRole} to {newRole}.", cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ApiResponse.Ok<object>(new { Message = $"Role of user {targetUser.Username} updated to {newRole}." });
+    }
+
+    public async Task<ApiResponse<object>> ResetUserCredentialsAsync(
+        Guid targetUserId,
+        string? newPassword,
+        string? newPin,
+        Guid executingUserId,
+        RoleType executingUserRole,
+        string executingUsername,
+        CancellationToken cancellationToken = default)
+    {
+        if (executingUserRole != RoleType.Owner && executingUserRole != RoleType.Admin)
+        {
+            throw new DomainException("Insufficient permissions to reset user credentials.", "PERMISSION_DENIED");
+        }
+
+        var targetUser = await _userRepo.GetByIdAsync(targetUserId, cancellationToken);
+        if (targetUser == null)
+        {
+            throw new DomainException("Target user was not found.", "USER_NOT_FOUND");
+        }
+
+        if (executingUserRole == RoleType.Admin && targetUser.Role == RoleType.Owner)
+        {
+            throw new DomainException("Administrators cannot reset Owner credentials.", "INSUFFICIENT_ROLE_PERMISSIONS");
+        }
+
+        string pwHash = targetUser.PasswordHash;
+        string salt = targetUser.Salt;
+        if (!string.IsNullOrWhiteSpace(newPassword))
+        {
+            _passwordHasher.ValidatePasswordPolicy(newPassword);
+            pwHash = _passwordHasher.HashPassword(newPassword);
+        }
+
+        string pinHash = targetUser.PinHash;
+        if (!string.IsNullOrWhiteSpace(newPin))
+        {
+            _passwordHasher.ValidatePinPolicy(newPin);
+            pinHash = _passwordHasher.HashPin(newPin);
+        }
+
+        targetUser.UpdateCredentials(pwHash, pinHash, salt);
+
+        // Instant session revocation
+        _sessionManager?.RevokeUserSessions(targetUserId);
+
+        await _auditRepo.RecordAsync("Users", "USER_CREDENTIALS_RESET", executingUsername,
+            $"Reset credentials for user {targetUser.Username}.", cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ApiResponse.Ok<object>(new { Message = $"Credentials reset for user {targetUser.Username}." });
+    }
+
+    public async Task<ApiResponse<object>> UnlockUserAsync(
+        Guid targetUserId,
+        Guid executingUserId,
+        RoleType executingUserRole,
+        string executingUsername,
+        CancellationToken cancellationToken = default)
+    {
+        if (executingUserRole != RoleType.Owner && executingUserRole != RoleType.Admin)
+        {
+            throw new DomainException("Insufficient permissions to unlock user account.", "PERMISSION_DENIED");
+        }
+
+        var targetUser = await _userRepo.GetByIdAsync(targetUserId, cancellationToken);
+        if (targetUser == null)
+        {
+            throw new DomainException("Target user was not found.", "USER_NOT_FOUND");
+        }
+
+        targetUser.ResetPinLockout();
+
+        await _auditRepo.RecordAsync("Users", "AUTH_USER_UNLOCKED", executingUsername,
+            $"Unlocked account for user {targetUser.Username}.", cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ApiResponse.Ok<object>(new { Message = $"Account for user {targetUser.Username} has been unlocked." });
     }
 }

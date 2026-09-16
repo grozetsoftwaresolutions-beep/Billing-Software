@@ -119,7 +119,11 @@ builder.Services.AddHostedService<ScheduledBackupBackgroundService>();
 
 // Register cryptographic security and session management
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
-builder.Services.AddSingleton<LocalSessionManager>();
+builder.Services.AddSingleton<LocalSessionManager>(sp =>
+{
+    var hasher = sp.GetRequiredService<IPasswordHasher>();
+    return new LocalSessionManager(hasher, () => sp.CreateScope().ServiceProvider.GetRequiredService<RetailDbContext>());
+});
 builder.Services.AddSingleton<ILocalSessionValidator>(sp => sp.GetRequiredService<LocalSessionManager>());
 builder.Services.AddSingleton<ISessionManager>(sp => sp.GetRequiredService<LocalSessionManager>());
 
@@ -139,6 +143,24 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICashSessionService, CashSessionService>();
 builder.Services.AddScoped<IReportRepository, EfReportRepository>();
 builder.Services.AddScoped<IReportService, ReportService>();
+
+
+// Phase 13 Security Settings, Supervisor Authorization & Immutable Audit
+builder.Services.AddSingleton<ISecuritySettingsStore>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var configDir = options != null && !string.IsNullOrWhiteSpace(options.DataDirectory)
+        ? Path.Combine(options.DataDirectory, "Config")
+        : null;
+    var auditRepo = sp.GetService<IAuditLogRepository>();
+    return new SecuritySettingsStore(
+        customConfigDir: configDir,
+        auditRepo: auditRepo,
+        dbContextFactory: () => sp.CreateScope().ServiceProvider.GetRequiredService<RetailDbContext>());
+});
+builder.Services.AddScoped<ISupervisorAuthorizationCore, SupervisorAuthorizationCore>();
+builder.Services.AddSingleton<ISupervisorApprovalService, SupervisorApprovalService>();
+builder.Services.AddScoped<IAuditService, AuditService>();
 
 // Phase 12 Multi-Counter Networking, Terminal Registration & Concurrency Hardening
 builder.Services.AddSingleton<ITerminalHeartbeatTracker, TerminalHeartbeatTracker>();
@@ -180,9 +202,11 @@ var app = builder.Build();
 // Pipeline middleware order: Correlation ID -> Global Exceptions -> Terminal Validation
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseMiddleware<TransportSecurityMiddleware>();
 app.UseMiddleware<LoopbackRecoveryMiddleware>();
 app.UseMiddleware<TerminalValidationMiddleware>();
 app.UseMiddleware<DatabaseMaintenanceMiddleware>();
+app.UseMiddleware<SessionInactivityMiddleware>();
 
 // Health and monitoring endpoints
 app.MapHealthEndpoints();
@@ -217,6 +241,12 @@ app.MapReportEndpoints();
 app.MapTerminalHardwareConfigEndpoints();
 app.MapHardwareEndpoints();
 
+
+// Phase 13 Supervisor Approval, Audit and Security Settings endpoints
+app.MapSupervisorEndpoints();
+app.MapAuditEndpoints();
+app.MapSecuritySettingsEndpoints();
+
 // Phase 11 Backup, Restore and Recovery endpoints
 app.MapBackupEndpoints();
 app.MapAdminRecoveryEndpoints();
@@ -236,7 +266,12 @@ using (var scope = app.Services.CreateScope())
     var storeIdentity = scope.ServiceProvider.GetRequiredService<IStoreIdentityService>();
     await storeIdentity.InitializeOrLoadAsync(store != null ? Guid.Parse("11111111-1111-1111-1111-111111111111") : Guid.NewGuid(), store?.StoreName ?? "Default Store");
 
-    // Phase 12 Server Identity initialization
+    
+    // Phase 13 Security Settings Store Initialization (Startup Reconciliation States A, B, C, D)
+    var settingsStore = scope.ServiceProvider.GetRequiredService<ISecuritySettingsStore>();
+    await settingsStore.InitializeAsync();
+
+// Phase 12 Server Identity initialization
     var serverIdentity = scope.ServiceProvider.GetRequiredService<IServerIdentityService>();
     await serverIdentity.EvaluateStartupStateAsync();
 }

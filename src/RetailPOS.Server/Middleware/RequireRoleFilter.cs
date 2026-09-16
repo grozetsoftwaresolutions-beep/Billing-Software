@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using RetailPOS.Contracts.Common;
@@ -49,6 +49,7 @@ public sealed class RequireRoleFilter : IEndpointFilter
         httpContext.Items["CurrentUserFullName"] = session.FullName;
         httpContext.Items["CurrentUserRole"] = session.Role.Value;
         httpContext.Items["CurrentSessionTerminalId"] = session.TerminalId;
+        httpContext.Items["CurrentSessionIdentityHash"] = session.SessionIdentityHash;
 
         return await next(context);
     }

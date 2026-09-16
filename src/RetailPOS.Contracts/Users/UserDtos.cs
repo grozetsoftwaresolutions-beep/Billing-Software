@@ -19,3 +19,7 @@ public sealed record UserDto(
     RoleType Role,
     bool IsActive,
     bool IsLocked);
+
+public sealed record ResetUserCredentialsRequest(
+    string? NewPassword,
+    string? NewPin);

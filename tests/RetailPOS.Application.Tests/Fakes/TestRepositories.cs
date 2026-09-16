@@ -1,3 +1,6 @@
+using RetailPOS.Contracts.Common;
+using RetailPOS.Contracts.Audit;
+using RetailPOS.Domain.Entities.Audit;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Security;
 using RetailPOS.Domain.Entities.Catalog;
@@ -84,6 +87,21 @@ public sealed class FakeAuditLogRepository : IAuditLogRepository
         Logs.Add((entityName, action, performedBy, details));
         return Task.CompletedTask;
     }
+
+    public Task RecordAsync(AuditLog log, CancellationToken cancellationToken = default)
+    {
+        Logs.Add((log.EntityName, log.Action, log.UserName ?? string.Empty, log.Details ?? string.Empty));
+        return Task.CompletedTask;
+    }
+
+    public Task<PagedResult<AuditLog>> GetAuditLogsAsync(AuditLogQueryFilter filter, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new PagedResult<AuditLog>([], 0, 1, 50));
+
+    public Task<IReadOnlyList<AuditLog>> GetAllForExportAsync(AuditLogQueryFilter filter, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<AuditLog>>([]);
+
+    public Task<AuditLog?> GetFailsafeClearAuditAsync(Guid failsafeInstanceId, Guid clearOperationId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<AuditLog?>(null);
 }
 
 public sealed class FakeStoreRepository : IStoreRepository
@@ -155,6 +173,12 @@ public sealed class FakeSessionManager : ISessionManager
     {
         Sessions.Remove(sessionToken);
     }
+
+    public void TouchSession(string sessionToken) { }
+    public void LockSession(string sessionToken) { }
+    public Task<bool> UnlockSessionAsync(string sessionToken, string pin, CancellationToken cancellationToken = default) => Task.FromResult(true);
+    public void RevokeUserSessions(Guid userId) { }
+    public void RevokeTerminalSessions(Guid terminalId) { }
 }
 
 public sealed class FakeProductRepository : IProductRepository

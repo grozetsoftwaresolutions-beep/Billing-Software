@@ -1,3 +1,5 @@
+using RetailPOS.Contracts.Audit;
+using RetailPOS.Domain.Entities.Audit;
 using System.Text;
 using RetailPOS.Application.Hardware;
 using RetailPOS.Application.Persistence;
@@ -397,6 +399,17 @@ public sealed class Phase10HardwareApplicationTests
             RecordedActions.Add((entityName, action, performedBy, details));
             return Task.CompletedTask;
         }
+        public Task RecordAsync(AuditLog log, CancellationToken cancellationToken = default)
+        {
+            RecordedActions.Add((log.EntityName, log.Action, log.UserName ?? string.Empty, log.Details ?? string.Empty));
+            return Task.CompletedTask;
+        }
+        public Task<PagedResult<AuditLog>> GetAuditLogsAsync(AuditLogQueryFilter filter, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PagedResult<AuditLog>([], 0, 1, 50));
+        public Task<IReadOnlyList<AuditLog>> GetAllForExportAsync(AuditLogQueryFilter filter, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<AuditLog>>([]);
+        public Task<AuditLog?> GetFailsafeClearAuditAsync(Guid failsafeInstanceId, Guid clearOperationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<AuditLog?>(null);
     }
 
     sealed class FakeUnitOfWork : IUnitOfWork

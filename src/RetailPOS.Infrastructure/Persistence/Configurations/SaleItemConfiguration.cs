@@ -38,6 +38,10 @@ public sealed class SaleItemConfiguration : IEntityTypeConfiguration<SaleItem>
         builder.Property(i => i.TaxableAmount).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER").IsRequired();
         builder.Property(i => i.TaxAmount).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER").IsRequired();
         builder.Property(i => i.LineTotal).HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER").IsRequired();
+        builder.Property(i => i.IsPriceOverridden).HasColumnName("is_price_overridden").IsRequired().HasDefaultValue(false);
+        builder.Property(i => i.OriginalUnitSellingPrice).HasColumnName("original_unit_selling_price").HasConversion<MoneyToMinorUnitsConverter>().HasColumnType("INTEGER");
+        builder.Property(i => i.PriceOverrideReason).HasColumnName("price_override_reason").HasMaxLength(500);
+        builder.Property(i => i.PriceOverrideApprovedByUserId).HasColumnName("price_override_approved_by_user_id");
 
         builder.HasMany(i => i.TaxComponents)
             .WithOne()

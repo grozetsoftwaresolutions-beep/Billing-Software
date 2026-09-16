@@ -1,4 +1,4 @@
-﻿using RetailPOS.Domain.Enums;
+using RetailPOS.Domain.Enums;
 
 namespace RetailPOS.Application.Security;
 
@@ -10,7 +10,10 @@ public sealed record SessionValidationResult(
     RoleType? Role = null,
     Guid? TerminalId = null,
     DateTime? ExpiresAtUtc = null,
-    string? ErrorMessage = null);
+    string? ErrorMessage = null,
+    bool IsLocked = false,
+    DateTime? LastActivityUtc = null,
+    string? SessionIdentityHash = null);
 
 public interface ISessionManager
 {
@@ -19,4 +22,14 @@ public interface ISessionManager
     Task<SessionValidationResult> ValidateSessionAsync(string sessionToken, CancellationToken cancellationToken = default);
 
     void RevokeSession(string sessionToken);
+
+    void TouchSession(string sessionToken);
+
+    void LockSession(string sessionToken);
+
+    Task<bool> UnlockSessionAsync(string sessionToken, string pin, CancellationToken cancellationToken = default);
+
+    void RevokeUserSessions(Guid userId);
+
+    void RevokeTerminalSessions(Guid terminalId);
 }

@@ -1,4 +1,4 @@
-﻿using RetailPOS.Domain.Common;
+using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Domain.ValueObjects;
 
@@ -15,6 +15,12 @@ public sealed class SaleInvoice : BaseEntity<Guid>
     public SaleStatus Status { get; private set; }
     public int ReprintCount { get; private set; }
     public DateTime? LastReprintedAtUtc { get; private set; }
+
+    // Void tracking
+    public Guid? VoidedByUserId { get; private set; }
+    public string? VoidedByUsername { get; private set; }
+    public string? VoidReason { get; private set; }
+    public DateTime? VoidedAtUtc { get; private set; }
 
     public Money GrossSubtotal { get; private set; }
     public Money TotalLineDiscounts { get; private set; }
@@ -117,6 +123,22 @@ public sealed class SaleInvoice : BaseEntity<Guid>
     {
         ReprintCount++;
         LastReprintedAtUtc = DateTime.UtcNow;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void Void(Guid userId, string username, string reason)
+    {
+        if (Status == SaleStatus.Voided)
+            throw new DomainException($"Sale invoice '{InvoiceNumber}' has already been voided.", "SALE_ALREADY_VOIDED");
+
+        if (Status == SaleStatus.PartiallyRefunded || Status == SaleStatus.Refunded)
+            throw new DomainException($"Cannot void sale invoice '{InvoiceNumber}' because refunds have already been issued against it.", "CANNOT_VOID_REFUNDED_SALE");
+
+        Status = SaleStatus.Voided;
+        VoidedByUserId = userId;
+        VoidedByUsername = username?.Trim();
+        VoidReason = reason?.Trim();
+        VoidedAtUtc = DateTime.UtcNow;
         UpdatedAtUtc = DateTime.UtcNow;
     }
 }

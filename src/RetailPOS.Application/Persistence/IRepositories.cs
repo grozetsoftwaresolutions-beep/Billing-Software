@@ -38,6 +38,10 @@ public interface ITerminalRepository
 public interface IAuditLogRepository
 {
     Task RecordAsync(string entityName, string action, string performedBy, string details, CancellationToken cancellationToken = default);
+    Task RecordAsync(RetailPOS.Domain.Entities.Audit.AuditLog log, CancellationToken cancellationToken = default);
+    Task<RetailPOS.Contracts.Common.PagedResult<RetailPOS.Domain.Entities.Audit.AuditLog>> GetAuditLogsAsync(RetailPOS.Contracts.Audit.AuditLogQueryFilter filter, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RetailPOS.Domain.Entities.Audit.AuditLog>> GetAllForExportAsync(RetailPOS.Contracts.Audit.AuditLogQueryFilter filter, CancellationToken cancellationToken = default);
+    Task<RetailPOS.Domain.Entities.Audit.AuditLog?> GetFailsafeClearAuditAsync(Guid failsafeInstanceId, Guid clearOperationId, CancellationToken cancellationToken = default);
 }
 
 public interface IStoreRepository

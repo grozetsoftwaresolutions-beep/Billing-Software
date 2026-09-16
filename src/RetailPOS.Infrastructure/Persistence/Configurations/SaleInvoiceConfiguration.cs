@@ -35,6 +35,10 @@ public sealed class SaleInvoiceConfiguration : IEntityTypeConfiguration<SaleInvo
 
         builder.Property(s => s.PricingModel).IsRequired();
         builder.Property(s => s.Status).IsRequired();
+        builder.Property(s => s.VoidedByUserId);
+        builder.Property(s => s.VoidedByUsername).HasMaxLength(100);
+        builder.Property(s => s.VoidReason).HasMaxLength(500);
+        builder.Property(s => s.VoidedAtUtc);
         builder.HasIndex(s => s.CreatedAtUtc).HasDatabaseName("IX_sales_invoices_created_at");
 
         // All financial amounts persisted as INTEGER (paise)

@@ -144,6 +144,76 @@ public sealed class EfAuditLogRepository : IAuditLogRepository
 
         await _context.AuditLogs.AddAsync(log, cancellationToken);
     }
+
+    public async Task RecordAsync(AuditLog log, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        await _context.AuditLogs.AddAsync(log, cancellationToken);
+    }
+
+    public async Task<RetailPOS.Contracts.Common.PagedResult<AuditLog>> GetAuditLogsAsync(RetailPOS.Contracts.Audit.AuditLogQueryFilter filter, CancellationToken cancellationToken = default)
+    {
+        var query = ApplyAuditFilter(_context.AuditLogs.AsNoTracking(), filter);
+        var totalCount = await query.CountAsync(cancellationToken);
+        var pageNumber = Math.Max(1, filter.PageNumber);
+        var pageSize = Math.Clamp(filter.PageSize, 1, 500);
+
+        var items = await query
+            .OrderByDescending(a => a.CreatedAtUtc)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return new RetailPOS.Contracts.Common.PagedResult<AuditLog>(items, totalCount, pageNumber, pageSize);
+    }
+
+    public async Task<IReadOnlyList<AuditLog>> GetAllForExportAsync(RetailPOS.Contracts.Audit.AuditLogQueryFilter filter, CancellationToken cancellationToken = default)
+    {
+        var query = ApplyAuditFilter(_context.AuditLogs.AsNoTracking(), filter);
+        return await query
+            .OrderByDescending(a => a.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<AuditLog?> GetFailsafeClearAuditAsync(Guid failsafeInstanceId, Guid clearOperationId, CancellationToken cancellationToken = default)
+    {
+        return await _context.AuditLogs.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Action == "SECURITY_SETTINGS_FAILSAFE_CLEARED" &&
+                                      a.FailsafeInstanceId == failsafeInstanceId &&
+                                      a.ClearOperationId == clearOperationId,
+                                 cancellationToken);
+    }
+
+    private static IQueryable<AuditLog> ApplyAuditFilter(IQueryable<AuditLog> query, RetailPOS.Contracts.Audit.AuditLogQueryFilter filter)
+    {
+        if (filter.FromDateUtc.HasValue)
+            query = query.Where(a => a.CreatedAtUtc >= filter.FromDateUtc.Value);
+        if (filter.ToDateUtc.HasValue)
+            query = query.Where(a => a.CreatedAtUtc <= filter.ToDateUtc.Value);
+        if (filter.UserId.HasValue)
+            query = query.Where(a => a.UserId == filter.UserId.Value);
+        if (!string.IsNullOrWhiteSpace(filter.UserName))
+        {
+            var u = filter.UserName.Trim();
+            query = query.Where(a => a.UserName != null && EF.Functions.Like(a.UserName, u));
+        }
+        if (filter.TerminalId.HasValue)
+            query = query.Where(a => a.TerminalId == filter.TerminalId.Value);
+        if (!string.IsNullOrWhiteSpace(filter.Action))
+        {
+            var act = filter.Action.Trim();
+            query = query.Where(a => EF.Functions.Like(a.Action, act));
+        }
+        if (!string.IsNullOrWhiteSpace(filter.EntityName))
+        {
+            var ent = filter.EntityName.Trim();
+            query = query.Where(a => EF.Functions.Like(a.EntityName, ent));
+        }
+        if (filter.Success.HasValue)
+            query = query.Where(a => a.Success == filter.Success.Value);
+
+        return query;
+    }
 }
 
 public sealed class EfStoreRepository : IStoreRepository
