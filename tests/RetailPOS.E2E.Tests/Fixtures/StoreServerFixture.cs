@@ -190,10 +190,18 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
         using var client = CreateClient();
         var req = new SetupOwnerRequest(storeName, username, "Store Owner", password, pin);
         var res = await client.PostAsJsonAsync("/api/v1/auth/setup-owner", req);
-        res.EnsureSuccessStatusCode();
+        if (!res.IsSuccessStatusCode)
+        {
+            var err = await res.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"SetupOwner failed with {res.StatusCode}: {err}");
+        }
 
         var loginRes = await client.PostAsJsonAsync("/api/v1/auth/login-password", new LoginPasswordRequest(username, password));
-        loginRes.EnsureSuccessStatusCode();
+        if (!loginRes.IsSuccessStatusCode)
+        {
+            var err = await loginRes.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"LoginPassword failed with {loginRes.StatusCode}: {err}");
+        }
 
         var body = await loginRes.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>();
         return body!.Data!.Token;
