@@ -19,6 +19,7 @@ public class RetailDbContext : DbContext
     public DbSet<Store> Stores => Set<Store>();
     public DbSet<Terminal> Terminals => Set<Terminal>();
     public DbSet<TerminalEnrollmentToken> TerminalEnrollmentTokens => Set<TerminalEnrollmentToken>();
+    public DbSet<PairingEnrollmentToken> PairingTokens => Set<PairingEnrollmentToken>();
     public DbSet<User> Users => Set<User>();
     public DbSet<TaxCategory> TaxCategories => Set<TaxCategory>();
     public DbSet<Category> Categories => Set<Category>();

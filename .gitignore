@@ -47,3 +47,7 @@ data/
 ## OS files
 .DS_Store
 Thumbs.db
+
+## Installer Output
+packaging/Output/
+
