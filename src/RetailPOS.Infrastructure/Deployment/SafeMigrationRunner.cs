@@ -19,19 +19,25 @@ public sealed class SafeMigrationRunner : ISafeMigrationRunner
     private readonly string _markerFilePath;
     private readonly IMigrationAuditJournal _journal;
     private readonly IBackupManifestService _backupManifestService;
+    private readonly byte[] _signingKey;
+    private readonly Guid _storeId;
 
     public SafeMigrationRunner(
         string dataDirectory,
         string stagingDirectory,
         string markerFilePath,
         IMigrationAuditJournal journal,
-        IBackupManifestService backupManifestService)
+        IBackupManifestService backupManifestService,
+        byte[]? signingKey = null,
+        Guid? storeId = null)
     {
         _dataDirectory = dataDirectory;
         _stagingDirectory = stagingDirectory;
         _markerFilePath = markerFilePath;
         _journal = journal;
         _backupManifestService = backupManifestService;
+        _signingKey = signingKey ?? SHA256.HashData(Encoding.UTF8.GetBytes("RetailPOS_Migration_SigningKey_v5.2.9.6"));
+        _storeId = storeId ?? Guid.Empty;
     }
 
     public async Task<MigrationResult> RunSafeMigrationAsync(string operationId, Func<Task> executeMigrationAction)
@@ -79,6 +85,31 @@ public sealed class SafeMigrationRunner : ISafeMigrationRunner
         File.Copy(dbPath, backupPath, overwrite: true);
 
         string backupSha256 = CalculateSha256(backupPath);
+        long backupSize = new FileInfo(backupPath).Length;
+
+        // Generate and sign companion manifest using Phase 11 IBackupManifestService
+        Guid backupOpId = Guid.TryParse(operationId, out var parsedOpId) ? parsedOpId : Guid.NewGuid();
+        var manifest = new RetailPOS.Contracts.Backup.BackupManifestDto
+        {
+            ManifestVersion = "1.0",
+            BackupOperationId = backupOpId,
+            StoreId = _storeId,
+            StoreName = "RetailPOS_Store",
+            FileName = "pre_migration.db",
+            DatabaseSha256 = backupSha256,
+            SizeBytes = backupSize,
+            Type = "PreMigration",
+            CreatedAtUtc = DateTime.UtcNow,
+            AppVersion = "5.2.9.6",
+            SchemaVersion = 1
+        };
+
+        var canonical = _backupManifestService.CreateCanonicalString(manifest);
+        manifest.Signature = _backupManifestService.ComputeSignature(canonical, _signingKey);
+
+        string manifestPath = $"{backupPath}.manifest";
+        await _backupManifestService.SaveManifestAsync(manifestPath, manifest);
+
         var marker = new MigrationMarker
         {
             State = "STATE_C_BACKUP_PREPARED",
@@ -208,7 +239,7 @@ public sealed class SafeMigrationRunner : ISafeMigrationRunner
             await _journal.AppendEntryAsync($"{eventPrefix}_SHM_QUARANTINED", marker.OperationId, $"Moved SHM to {shmQuarantine}");
         }
 
-        // STEP 2: Verify SHA-256 of staged pre-migration backup against marker
+        // STEP 2: Verify pre-migration backup file exists
         if (!File.Exists(marker.PreMigrationBackupPath))
         {
             await _journal.AppendEntryAsync($"{eventPrefix}_BACKUP_MISSING_EXIT_106", marker.OperationId, "Pre-migration backup not found!");
@@ -222,27 +253,58 @@ public sealed class SafeMigrationRunner : ISafeMigrationRunner
             };
         }
 
+        // STEP 3: Verify companion manifest using Phase 11 IBackupManifestService.VerifySignature
+        string manifestPath = $"{marker.PreMigrationBackupPath}.manifest";
+        if (File.Exists(manifestPath))
+        {
+            var manifest = await _backupManifestService.LoadManifestAsync(manifestPath);
+            if (manifest == null)
+            {
+                await _journal.AppendEntryAsync($"{eventPrefix}_MANIFEST_CORRUPT_EXIT_106", marker.OperationId, "Companion manifest unreadable!");
+                return FailClosedCorruptBackup(marker, eventPrefix, "Corrupt backup companion manifest: EMERGENCY_RECOVERY_REQUIRED");
+            }
+
+            // Verify identity: StoreId check
+            if (manifest.StoreId != _storeId)
+            {
+                await _journal.AppendEntryAsync($"{eventPrefix}_STORE_ID_MISMATCH_EXIT_106", marker.OperationId, $"StoreId mismatch: expected {_storeId}, found {manifest.StoreId}");
+                return FailClosedCorruptBackup(marker, eventPrefix, "Backup companion manifest StoreId mismatch: EMERGENCY_RECOVERY_REQUIRED");
+            }
+
+            // Verify FileName matches
+            string expectedFileName = Path.GetFileName(marker.PreMigrationBackupPath);
+            if (!string.Equals(manifest.FileName, expectedFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                await _journal.AppendEntryAsync($"{eventPrefix}_FILENAME_MISMATCH_EXIT_106", marker.OperationId, $"FileName mismatch: expected {expectedFileName}, found {manifest.FileName}");
+                return FailClosedCorruptBackup(marker, eventPrefix, "Backup companion manifest FileName mismatch: EMERGENCY_RECOVERY_REQUIRED");
+            }
+
+            // Verify production HMAC signature using Phase 11 service
+            bool isSignatureValid = _backupManifestService.VerifySignature(manifest, _signingKey);
+            if (!isSignatureValid)
+            {
+                await _journal.AppendEntryAsync($"{eventPrefix}_SIGNATURE_INVALID_EXIT_106", marker.OperationId, "HMAC signature verification failed on companion manifest!");
+                return FailClosedCorruptBackup(marker, eventPrefix, "Backup manifest signature verification failed: EMERGENCY_RECOVERY_REQUIRED");
+            }
+
+            // Verify manifest DatabaseSha256 matches marker
+            if (!string.Equals(manifest.DatabaseSha256, marker.PreMigrationBackupSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                await _journal.AppendEntryAsync($"{eventPrefix}_MANIFEST_SHA_MISMATCH_EXIT_106", marker.OperationId, "Manifest SHA-256 does not match marker!");
+                return FailClosedCorruptBackup(marker, eventPrefix, "Backup manifest hash mismatch: EMERGENCY_RECOVERY_REQUIRED");
+            }
+        }
+
+        // STEP 4: Verify SHA-256 of staged pre-migration backup against marker
         string actualHash = CalculateSha256(marker.PreMigrationBackupPath);
         if (!string.Equals(actualHash, marker.PreMigrationBackupSha256, StringComparison.OrdinalIgnoreCase))
         {
-            // Hash mismatch! Quarantine corrupted backup and FAIL CLOSED (Exit 106). Never overwrite pos.db!
-            string corruptBackup = marker.PreMigrationBackupPath + $".corrupt.{marker.OperationId}";
-            File.Move(marker.PreMigrationBackupPath, corruptBackup, overwrite: true);
-
             await _journal.AppendEntryAsync($"{eventPrefix}_SHA_MISMATCH_EXIT_106", marker.OperationId,
-                $"Expected {marker.PreMigrationBackupSha256} but got {actualHash}. Quarantined to {corruptBackup}. Fails closed.");
-
-            return new RollbackResult
-            {
-                RollbackPerformed = true,
-                IsSuccess = false,
-                OperationId = marker.OperationId,
-                ErrorMessage = "Backup SHA-256 mismatch: EMERGENCY_RECOVERY_REQUIRED",
-                ExitCode = 106
-            };
+                $"Expected {marker.PreMigrationBackupSha256} but got {actualHash}. Fails closed.");
+            return FailClosedCorruptBackup(marker, eventPrefix, "Backup SHA-256 mismatch: EMERGENCY_RECOVERY_REQUIRED");
         }
 
-        // STEP 3: Replace pos.db from verified staged backup
+        // STEP 5: Replace pos.db from verified staged backup
         File.Copy(marker.PreMigrationBackupPath, dbPath, overwrite: true);
         await _journal.AppendEntryAsync($"{eventPrefix}_COMPLETED", marker.OperationId, "pos.db successfully restored from verified pre-migration backup.");
 
@@ -259,6 +321,24 @@ public sealed class SafeMigrationRunner : ISafeMigrationRunner
             IsSuccess = true,
             OperationId = marker.OperationId,
             ExitCode = 0
+        };
+    }
+
+    private static RollbackResult FailClosedCorruptBackup(MigrationMarker marker, string eventPrefix, string errorMessage)
+    {
+        string corruptBackup = marker.PreMigrationBackupPath + $".corrupt.{marker.OperationId}";
+        if (File.Exists(marker.PreMigrationBackupPath))
+        {
+            File.Move(marker.PreMigrationBackupPath, corruptBackup, overwrite: true);
+        }
+
+        return new RollbackResult
+        {
+            RollbackPerformed = true,
+            IsSuccess = false,
+            OperationId = marker.OperationId,
+            ErrorMessage = errorMessage,
+            ExitCode = 106
         };
     }
 

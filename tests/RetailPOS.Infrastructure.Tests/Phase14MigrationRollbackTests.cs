@@ -336,7 +336,124 @@ public sealed class Phase14MigrationRollbackTests : IDisposable
     [Fact]
     public async Task TEST_32_Migration_ProductionDIRepositoryReuse_InheritsPhase11()
     {
+        // 1. Production DI verification: proves real DI container resolution
         Assert.NotNull(_backupManifestService);
         Assert.IsType<BackupManifestService>(_backupManifestService);
+
+        string opId = Guid.NewGuid().ToString("N");
+        var runner = CreateRunner();
+
+        // 2. Legitimate migration run: verifies State C generates companion manifest signed with Phase 11 service
+        var migrationResult = await runner.RunSafeMigrationAsync(opId, async () =>
+        {
+            // Verify companion manifest created during State C
+            string manifestPath = Path.Combine(_stagingDir, opId, "pre_migration.db.manifest");
+            Assert.True(File.Exists(manifestPath), "Companion manifest must be created in staging.");
+
+            var manifest = await _backupManifestService.LoadManifestAsync(manifestPath);
+            Assert.NotNull(manifest);
+            Assert.Equal("pre_migration.db", manifest.FileName);
+            Assert.Equal(1, manifest.SchemaVersion);
+            Assert.NotEmpty(manifest.Signature);
+
+            // Verify signature using Phase 11 IBackupManifestService.VerifySignature
+            byte[] defaultKey = SHA256.HashData(Encoding.UTF8.GetBytes("RetailPOS_Migration_SigningKey_v5.2.9.6"));
+            bool isSigValid = _backupManifestService.VerifySignature(manifest, defaultKey);
+            Assert.True(isSigValid, "Companion manifest signature must be valid under Phase 11 verifier.");
+
+            // Modify pos.db to simulate successful migration
+            await File.WriteAllTextAsync(Path.Combine(_dataDir, "pos.db"), "MIGRATED_CONTENT");
+        });
+
+        Assert.True(migrationResult.IsSuccess);
+        Assert.Equal("STATE_G_COMPLETED", migrationResult.CurrentState);
+
+        // 3. Tampered manifest case: proves VerifySignature fails and SafeMigrationRunner refuses backup (Exit 106)
+        string crashOpId = Guid.NewGuid().ToString("N");
+        string crashStaging = Path.Combine(_stagingDir, crashOpId);
+        Directory.CreateDirectory(crashStaging);
+        string backupFile = Path.Combine(crashStaging, "pre_migration.db");
+        await File.WriteAllTextAsync(backupFile, "LEGIT_BACKUP_CONTENT");
+        string shaHex = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("LEGIT_BACKUP_CONTENT")));
+
+        // Create companion manifest but with TAMPERED signature
+        var tamperedManifest = new RetailPOS.Contracts.Backup.BackupManifestDto
+        {
+            ManifestVersion = "1.0",
+            BackupOperationId = Guid.NewGuid(),
+            StoreId = Guid.Empty,
+            StoreName = "RetailPOS_Store",
+            FileName = "pre_migration.db",
+            DatabaseSha256 = shaHex,
+            SizeBytes = new FileInfo(backupFile).Length,
+            Type = "PreMigration",
+            CreatedAtUtc = DateTime.UtcNow,
+            AppVersion = "5.2.9.6",
+            SchemaVersion = 1,
+            Signature = "DEADBEEFCAFE00112233445566778899AABBCCDDEEFF00112233445566778899" // Forged signature
+        };
+        await _backupManifestService.SaveManifestAsync($"{backupFile}.manifest", tamperedManifest);
+
+        var marker = new MigrationMarker
+        {
+            State = "STATE_E_ROLLBACK",
+            OperationId = crashOpId,
+            PreMigrationBackupPath = backupFile,
+            PreMigrationBackupSha256 = shaHex,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+        await File.WriteAllTextAsync(_markerPath, JsonSerializer.Serialize(marker));
+
+        var recoveryResult = await runner.PerformStartupRecoveryIfNeededAsync();
+
+        // Must refuse corrupted/forged manifest and fail closed with Exit 106
+        Assert.False(recoveryResult.IsSuccess);
+        Assert.Equal(106, recoveryResult.ExitCode);
+        Assert.Contains("EMERGENCY_RECOVERY_REQUIRED", recoveryResult.ErrorMessage);
+        Assert.True(File.Exists(backupFile + $".corrupt.{crashOpId}"));
+
+        // 4. Identity mismatch case: valid signature on different StoreId remains rejected
+        string mismatchOpId = Guid.NewGuid().ToString("N");
+        string mismatchStaging = Path.Combine(_stagingDir, mismatchOpId);
+        Directory.CreateDirectory(mismatchStaging);
+        string mismatchBackup = Path.Combine(mismatchStaging, "pre_migration.db");
+        await File.WriteAllTextAsync(mismatchBackup, "MISMATCH_STORE_CONTENT");
+        string mismatchSha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("MISMATCH_STORE_CONTENT")));
+
+        byte[] defaultKey2 = SHA256.HashData(Encoding.UTF8.GetBytes("RetailPOS_Migration_SigningKey_v5.2.9.6"));
+        var mismatchManifest = new RetailPOS.Contracts.Backup.BackupManifestDto
+        {
+            ManifestVersion = "1.0",
+            BackupOperationId = Guid.NewGuid(),
+            StoreId = Guid.NewGuid(), // DIFFERENT STORE ID!
+            StoreName = "Rogue_Store",
+            FileName = "pre_migration.db",
+            DatabaseSha256 = mismatchSha,
+            SizeBytes = new FileInfo(mismatchBackup).Length,
+            Type = "PreMigration",
+            CreatedAtUtc = DateTime.UtcNow,
+            AppVersion = "5.2.9.6",
+            SchemaVersion = 1
+        };
+        var canonical = _backupManifestService.CreateCanonicalString(mismatchManifest);
+        mismatchManifest.Signature = _backupManifestService.ComputeSignature(canonical, defaultKey2);
+        await _backupManifestService.SaveManifestAsync($"{mismatchBackup}.manifest", mismatchManifest);
+
+        var mismatchMarker = new MigrationMarker
+        {
+            State = "STATE_E_ROLLBACK",
+            OperationId = mismatchOpId,
+            PreMigrationBackupPath = mismatchBackup,
+            PreMigrationBackupSha256 = mismatchSha,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+        await File.WriteAllTextAsync(_markerPath, JsonSerializer.Serialize(mismatchMarker));
+
+        var mismatchResult = await runner.PerformStartupRecoveryIfNeededAsync();
+        Assert.False(mismatchResult.IsSuccess);
+        Assert.Equal(106, mismatchResult.ExitCode);
+        Assert.Contains("StoreId mismatch", mismatchResult.ErrorMessage);
     }
 }
