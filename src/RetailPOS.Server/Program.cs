@@ -20,6 +20,7 @@ using RetailPOS.Infrastructure.Hardware;
 using RetailPOS.Infrastructure.Persistence;
 using RetailPOS.Infrastructure.Persistence.Repositories;
 using RetailPOS.Infrastructure.Security;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Server.Authentication;
 using RetailPOS.Server.Configuration;
 using RetailPOS.Server.Endpoints;
@@ -29,7 +30,10 @@ using Serilog;
 var builder = WebApplication.CreateBuilder(args);
 
 // Enable running as a Windows Service with appropriate service lifetime
-builder.Host.UseWindowsService();
+builder.Host.UseWindowsService(options =>
+{
+    options.ServiceName = WindowsServiceDeploymentSpecification.ServiceName;
+});
 
 // Strongly typed server configuration
 var serverOptions = new ServerOptions();
@@ -346,6 +350,13 @@ if (args.Contains("--provision-replacement-identity"))
     return;
 }
 
-app.Run();
+try
+{
+    app.Run();
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 
 public partial class Program { }
