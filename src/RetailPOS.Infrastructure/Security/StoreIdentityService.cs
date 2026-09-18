@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using RetailPOS.Application.Services;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Domain.Common;
 
 public sealed class StoreIdentityService : IStoreIdentityService
@@ -29,7 +30,9 @@ public sealed class StoreIdentityService : IStoreIdentityService
 
     public StoreIdentityService(string? customSecurityDir = null)
     {
-        var baseDir = customSecurityDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Security");
+        var baseDir = !string.IsNullOrWhiteSpace(customSecurityDir)
+            ? customSecurityDir
+            : RetailPOSPaths.GetDefaultSecurityDirectory();
         _securityFilePath = Path.Combine(baseDir, "store_identity.dat");
     }
 

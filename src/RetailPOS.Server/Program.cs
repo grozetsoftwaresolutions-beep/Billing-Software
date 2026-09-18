@@ -71,6 +71,9 @@ builder.WebHost.ConfigureKestrel(options =>
     }
 });
 
+// Ensure production directories exist
+serverOptions.EnsureDirectoriesCreated();
+
 // Authoritative local SQLite database registration with Phase 11 Database Maintenance Interceptor
 builder.Services.AddDbContext<RetailDbContext>((sp, options) =>
 {
@@ -108,13 +111,65 @@ builder.Services.AddSingleton<IBackupOperationCoordinator, BackupOperationCoordi
 builder.Services.AddSingleton<MaintenanceScopeFactory>();
 builder.Services.AddSingleton<IMaintenanceScopeFactory>(sp => sp.GetRequiredService<MaintenanceScopeFactory>());
 builder.Services.AddSingleton<IMaintenanceExecutionScope>(sp => sp.GetRequiredService<MaintenanceScopeFactory>());
-builder.Services.AddSingleton<IStoreIdentityService, StoreIdentityService>();
+builder.Services.AddSingleton<IStoreIdentityService>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var securityDir = options?.ResolveSecurityDirectory();
+    return new StoreIdentityService(securityDir);
+});
 builder.Services.AddSingleton<IBackupManifestService, BackupManifestService>();
-builder.Services.AddSingleton<IBackupSettingsStore, JsonBackupSettingsStore>();
+builder.Services.AddSingleton<IBackupSettingsStore>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var securityDir = options?.ResolveSecurityDirectory();
+    var settingsPath = securityDir != null ? Path.Combine(securityDir, "backup_settings.json") : null;
+    return new JsonBackupSettingsStore(settingsPath);
+});
 builder.Services.AddScoped<IBackupRepository, EfBackupRepository>();
 builder.Services.AddScoped<IBackupRetentionService, BackupRetentionService>();
-builder.Services.AddScoped<IFilesystemReconciliationEngine, FilesystemReconciliationEngine>();
-builder.Services.AddScoped<IBackupService, BackupService>();
+builder.Services.AddScoped<IFilesystemReconciliationEngine>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var dataDir = options?.ResolveDataDirectory();
+    var backupsDir = options?.ResolveBackupsDirectory();
+    var stagingDir = options?.ResolveStagingDirectory();
+    var recoveryMarker = stagingDir != null ? Path.Combine(stagingDir, "Recovery", "restore_state.json") : null;
+    var quarantineDir = stagingDir != null ? Path.Combine(stagingDir, "Quarantine") : null;
+    return new FilesystemReconciliationEngine(
+        sp.GetRequiredService<IDatabaseOperationGate>(),
+        sp.GetRequiredService<IStoreIdentityService>(),
+        sp.GetRequiredService<IBackupManifestService>(),
+        sp.GetRequiredService<IBackupRepository>(),
+        sp.GetRequiredService<IUnitOfWork>(),
+        customDataDir: dataDir,
+        customBackupsDir: backupsDir,
+        customRecoveryMarkerPath: recoveryMarker,
+        customQuarantineDir: quarantineDir);
+});
+builder.Services.AddScoped<IBackupService>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var dataDir = options?.ResolveDataDirectory();
+    var stagingDir = options?.ResolveStagingDirectory();
+    var recoveryMarker = stagingDir != null ? Path.Combine(stagingDir, "Recovery", "restore_state.json") : null;
+    var quarantineDir = stagingDir != null ? Path.Combine(stagingDir, "Quarantine") : null;
+    return new BackupService(
+        sp.GetRequiredService<IBackupRepository>(),
+        sp.GetRequiredService<IBackupSettingsStore>(),
+        sp.GetRequiredService<IBackupRetentionService>(),
+        sp.GetRequiredService<IDatabaseMaintenanceCoordinator>(),
+        sp.GetRequiredService<IBackupOperationCoordinator>(),
+        sp.GetRequiredService<IMaintenanceScopeFactory>(),
+        sp.GetRequiredService<IStoreIdentityService>(),
+        sp.GetRequiredService<IBackupManifestService>(),
+        sp.GetRequiredService<IAuditLogRepository>(),
+        sp.GetRequiredService<IUnitOfWork>(),
+        sp.GetRequiredService<RetailDbContext>(),
+        serviceScopeFactory: sp.GetService<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>(),
+        customDataDir: dataDir,
+        customQuarantineDir: quarantineDir,
+        customRecoveryMarkerPath: recoveryMarker);
+});
 builder.Services.AddHostedService<ScheduledBackupBackgroundService>();
 
 // Register cryptographic security and session management
@@ -149,12 +204,10 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddSingleton<ISecuritySettingsStore>(sp =>
 {
     var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
-    var configDir = options != null && !string.IsNullOrWhiteSpace(options.DataDirectory)
-        ? Path.Combine(options.DataDirectory, "Config")
-        : null;
+    var securityDir = options?.ResolveSecurityDirectory();
     var auditRepo = sp.GetService<IAuditLogRepository>();
     return new SecuritySettingsStore(
-        customConfigDir: configDir,
+        customConfigDir: securityDir,
         auditRepo: auditRepo,
         dbContextFactory: () => sp.CreateScope().ServiceProvider.GetRequiredService<RetailDbContext>());
 });
@@ -169,7 +222,7 @@ builder.Services.AddSingleton<NonceReplayCache>();
 builder.Services.AddScoped<IServerIdentityService>(sp =>
 {
     var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>().Value;
-    var securityDir = Path.Combine(options.DataDirectory, "Security");
+    var securityDir = options.ResolveSecurityDirectory();
     return new ServerIdentityService(
         sp.GetService<Microsoft.EntityFrameworkCore.IDbContextFactory<RetailDbContext>>(),
         sp.GetService<RetailDbContext>(),

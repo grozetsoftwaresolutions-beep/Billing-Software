@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Security;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Domain.Entities.Audit;
 using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Security;
@@ -56,7 +57,7 @@ public sealed class SecuritySettingsStore : ISecuritySettingsStore, IDisposable
         }
         else
         {
-            _configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Config");
+            _configDir = RetailPOSPaths.GetDefaultSecurityDirectory();
         }
 
         Directory.CreateDirectory(_configDir);

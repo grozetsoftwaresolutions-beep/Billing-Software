@@ -8,6 +8,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Services;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Discovery;
 using RetailPOS.Contracts.Terminals;
 using RetailPOS.Domain.Common;
@@ -76,8 +77,7 @@ public sealed class ServerIdentityService : IServerIdentityService
         }
         else
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            _securityDir = Path.Combine(appData, "GrozetPOS", "Security");
+            _securityDir = RetailPOSPaths.GetDefaultSecurityDirectory();
         }
 
         _keyFilePath = Path.Combine(_securityDir, "server_identity.key");

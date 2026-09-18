@@ -21,6 +21,7 @@ using RetailPOS.Domain.Entities.Configuration;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Domain.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Infrastructure.Persistence;
 
 public sealed class BackupService : IBackupService
@@ -74,9 +75,9 @@ public sealed class BackupService : IBackupService
         _dbContext = dbContext;
         _serviceScopeFactory = serviceScopeFactory;
 
-        _dataDir = customDataDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Data");
-        _quarantineDir = customQuarantineDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Quarantine");
-        var recoveryDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Recovery");
+        _dataDir = customDataDir ?? RetailPOSPaths.GetDefaultDatabaseDirectory();
+        _quarantineDir = customQuarantineDir ?? Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Quarantine");
+        var recoveryDir = Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Recovery");
         _recoveryMarkerPath = customRecoveryMarkerPath ?? Path.Combine(recoveryDir, "restore_state.json");
     }
 
@@ -92,7 +93,7 @@ public sealed class BackupService : IBackupService
         var settings = await _settingsStore.GetSettingsAsync(ct).ConfigureAwait(false);
         var targetDir = !string.IsNullOrWhiteSpace(settings.BackupStoragePath)
             ? settings.BackupStoragePath
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups");
+            : RetailPOSPaths.GetDefaultBackupsDirectory();
 
         if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
         if (!Directory.Exists(_quarantineDir)) Directory.CreateDirectory(_quarantineDir);
@@ -319,7 +320,7 @@ public sealed class BackupService : IBackupService
             var settings = await _settingsStore.GetSettingsAsync(ct).ConfigureAwait(false);
             var targetDir = !string.IsNullOrWhiteSpace(settings.BackupStoragePath)
                 ? settings.BackupStoragePath
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups");
+                : RetailPOSPaths.GetDefaultBackupsDirectory();
 
             if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
 
@@ -449,7 +450,7 @@ public sealed class BackupService : IBackupService
         var settings = await _settingsStore.GetSettingsAsync(ct).ConfigureAwait(false);
         var targetDir = !string.IsNullOrWhiteSpace(settings.BackupStoragePath)
             ? settings.BackupStoragePath
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups");
+            : RetailPOSPaths.GetDefaultBackupsDirectory();
 
         var targetDbPath = Path.Combine(targetDir, safeBasename);
         var targetManifestPath = $"{targetDbPath}.manifest";
@@ -622,7 +623,7 @@ public sealed class BackupService : IBackupService
         var settings = await _settingsStore.GetSettingsAsync(ct).ConfigureAwait(false);
         var targetDir = !string.IsNullOrWhiteSpace(settings.BackupStoragePath)
             ? settings.BackupStoragePath
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups");
+            : RetailPOSPaths.GetDefaultBackupsDirectory();
 
         var dbPath = Path.Combine(targetDir, safeBasename);
         var manifestPath = $"{dbPath}.manifest";

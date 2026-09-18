@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using RetailPOS.Application.Services;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Domain.ValueObjects;
 
 public sealed class JsonBackupSettingsStore : IBackupSettingsStore, IDisposable
@@ -23,7 +24,7 @@ public sealed class JsonBackupSettingsStore : IBackupSettingsStore, IDisposable
         }
         else
         {
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Config");
+            var baseDir = RetailPOSPaths.GetDefaultSecurityDirectory();
             _settingsFilePath = Path.Combine(baseDir, "backup_settings.json");
         }
     }
@@ -100,7 +101,7 @@ public sealed class JsonBackupSettingsStore : IBackupSettingsStore, IDisposable
 
     private static BackupConfiguration CreateDefault()
     {
-        var defaultBackupDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups");
+        var defaultBackupDir = RetailPOSPaths.GetDefaultBackupsDirectory();
         return new BackupConfiguration
         {
             DailyBackupEnabled = true,

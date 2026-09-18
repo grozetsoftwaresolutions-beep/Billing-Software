@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Services;
 using RetailPOS.Contracts.Backup;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Domain.Entities.Audit;
 using RetailPOS.Domain.Entities.Backup;
 using RetailPOS.Domain.Enums;
@@ -25,6 +26,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
     private readonly IUnitOfWork _unitOfWork;
     private readonly string _dataDir;
     private readonly string _backupsDir;
+    private readonly string _quarantineDir;
     private readonly string _recoveryMarkerPath;
 
     public FilesystemReconciliationEngine(
@@ -35,7 +37,8 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         IUnitOfWork unitOfWork,
         string? customDataDir = null,
         string? customBackupsDir = null,
-        string? customRecoveryMarkerPath = null)
+        string? customRecoveryMarkerPath = null,
+        string? customQuarantineDir = null)
     {
         _gate = gate;
         _storeIdentity = storeIdentity;
@@ -43,9 +46,10 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         _backupRepo = backupRepo;
         _unitOfWork = unitOfWork;
 
-        _dataDir = customDataDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Data");
-        _backupsDir = customBackupsDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups");
-        var recoveryDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Recovery");
+        _dataDir = customDataDir ?? RetailPOSPaths.GetDefaultDatabaseDirectory();
+        _backupsDir = customBackupsDir ?? RetailPOSPaths.GetDefaultBackupsDirectory();
+        _quarantineDir = customQuarantineDir ?? Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Quarantine");
+        var recoveryDir = Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Recovery");
         _recoveryMarkerPath = customRecoveryMarkerPath ?? Path.Combine(recoveryDir, "restore_state.json");
     }
 
@@ -63,12 +67,11 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
 
     private void SweepQuarantineFiles()
     {
-        var quarantineDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Quarantine");
-        if (Directory.Exists(quarantineDir))
+        if (Directory.Exists(_quarantineDir))
         {
             try
             {
-                var files = Directory.GetFiles(quarantineDir, "quarantine_*");
+                var files = Directory.GetFiles(_quarantineDir, "quarantine_*");
                 foreach (var file in files)
                 {
                     try { File.Delete(file); } catch { }

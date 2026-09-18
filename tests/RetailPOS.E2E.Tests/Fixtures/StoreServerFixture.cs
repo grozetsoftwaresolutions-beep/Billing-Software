@@ -38,6 +38,7 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
     private readonly string _logsDir;
     private readonly string _backupsDir;
     private readonly string _securityDir;
+    private readonly string _stagingDir;
     private bool _disposed;
 
     public string DataDirectory => _dataDir;
@@ -45,6 +46,7 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
     public string LogsDirectory => _logsDir;
     public string BackupsDirectory => _backupsDir;
     public string SecurityDirectory => _securityDir;
+    public string StagingDirectory => _stagingDir;
     public MockHardwareDeviceManager HardwareManager { get; }
     public bool PreserveDataDirectoryOnDispose { get; set; }
 
@@ -65,11 +67,13 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
         _logsDir = Path.Combine(_dataDir, "Logs");
         _backupsDir = Path.Combine(_dataDir, "Backups");
         _securityDir = Path.Combine(_dataDir, "Security");
+        _stagingDir = Path.Combine(_dataDir, "Staging");
 
         Directory.CreateDirectory(_dataDir);
         Directory.CreateDirectory(_logsDir);
         Directory.CreateDirectory(_backupsDir);
         Directory.CreateDirectory(_securityDir);
+        Directory.CreateDirectory(_stagingDir);
 
         HardwareManager = new MockHardwareDeviceManager();
     }
@@ -91,6 +95,8 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
                 ["ServerConfiguration:DataDirectory"] = _dataDir,
                 ["ServerConfiguration:LogsDirectory"] = _logsDir,
                 ["ServerConfiguration:BackupsDirectory"] = _backupsDir,
+                ["ServerConfiguration:SecurityDirectory"] = _securityDir,
+                ["ServerConfiguration:StagingDirectory"] = _stagingDir,
                 ["ServerConfiguration:DatabaseFileName"] = Path.GetFileName(_dbPath),
                 ["ServerConfiguration:StoreId"] = "STORE-E2E-001",
                 ["ServerConfiguration:StoreName"] = "Grozet Pilot E2E Store",

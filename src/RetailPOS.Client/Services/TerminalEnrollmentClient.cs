@@ -5,6 +5,7 @@ using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Terminals;
 
 namespace RetailPOS.Client.Services;
@@ -19,8 +20,8 @@ public sealed class TerminalEnrollmentClient
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _tokenStoragePath = tokenStoragePath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "GrozetPOS", "Client", "terminal_token.dat");
+            RetailPOSPaths.GetDefaultClientSecurityDirectory(),
+            "terminal_token.dat");
     }
 
     public async Task<TerminalEnrollResponseDto> EnrollAsync(

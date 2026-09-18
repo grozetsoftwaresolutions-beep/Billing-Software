@@ -1,10 +1,11 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Discovery;
 using RetailPOS.Contracts.Terminals;
 using RetailPOS.Domain.ValueObjects;
@@ -37,8 +38,8 @@ public sealed class ServerDiscoveryClient
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _pinnedIdentityPath = pinnedIdentityPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "GrozetPOS", "Client", "pinned_server.json");
+            RetailPOSPaths.GetDefaultClientSecurityDirectory(),
+            "pinned_server.json");
 
         LoadPinnedIdentity();
     }

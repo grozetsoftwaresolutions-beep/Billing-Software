@@ -111,6 +111,17 @@ public class Phase11BackupServiceTests : IDisposable
         var manifestService = new BackupManifestService();
         var settingsPath = Path.Combine(_configDir, "backup_settings.json");
         var settingsStore = new JsonBackupSettingsStore(settingsPath);
+        settingsStore.SaveSettingsAsync(new BackupConfiguration
+        {
+            DailyBackupEnabled = true,
+            DailyBackupTime = new TimeSpan(23, 0, 0),
+            HourlyBackupEnabled = false,
+            HourlyIntervalHours = 4,
+            RetentionDailyCount = 14,
+            RetentionHourlyCount = 48,
+            RetentionSnapshotCount = 5,
+            BackupStoragePath = _backupsDir
+        }).GetAwaiter().GetResult();
         var retentionService = new BackupRetentionService(backupRepo, settingsStore, unitOfWork);
 
         var service = new BackupService(
@@ -395,7 +406,7 @@ public class Phase11BackupServiceTests : IDisposable
         var (service, storeIdentity, manifestService, context) = CreateTestEnvironment();
         using (context)
         {
-            var existingPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups", "grozet_pos_collide.db");
+            var existingPath = Path.Combine(_backupsDir, "grozet_pos_collide.db");
             CreateValidSqliteFile(existingPath);
 
             var tempDb = Path.Combine(_testDir, "incoming_different.db");
@@ -507,7 +518,7 @@ public class Phase11BackupServiceTests : IDisposable
                 await service.IngestExternalBackupAsync(db1, "grozet_pos_diff_identity.db", m1, "grozet_pos_diff_identity.db.manifest", "U1", "Admin");
             }
 
-            var authoritativeDbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Backups", "grozet_pos_diff_identity.db");
+            var authoritativeDbPath = Path.Combine(_backupsDir, "grozet_pos_diff_identity.db");
             Assert.True(File.Exists(authoritativeDbPath));
             var originalCreationTime = File.GetLastWriteTimeUtc(authoritativeDbPath);
 

@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -34,6 +34,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 ["ServerConfiguration:DataDirectory"] = _dataDir,
                 ["ServerConfiguration:LogsDirectory"] = _dataDir,
                 ["ServerConfiguration:BackupsDirectory"] = _dataDir,
+                ["ServerConfiguration:SecurityDirectory"] = Path.Combine(_dataDir, "Security"),
+                ["ServerConfiguration:StagingDirectory"] = Path.Combine(_dataDir, "Staging"),
                 ["ServerConfiguration:DatabaseFileName"] = Path.GetFileName(_dbPath),
                 ["ServerConfiguration:StoreId"] = "STORE-TEST-001",
                 ["ServerConfiguration:StoreName"] = "Grozet Test Store",
