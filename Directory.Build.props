@@ -10,6 +10,8 @@
     <Company>Grozet Software Solutions</Company>
     <Product>Grozet Offline Retail POS &amp; Billing</Product>
     <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
     <!-- CA1707: Identifiers should not contain underscores (common for test methods) -->
     <NoWarn>$(NoWarn);CA1707</NoWarn>
   </PropertyGroup>
