@@ -130,6 +130,11 @@ public sealed class VirtualPosTerminal : IDisposable
         return Client.PostAsJsonAsync(uri, value, cancellationToken);
     }
 
+    public Task<HttpResponseMessage> PostAsync(string uri, HttpContent? content = null, CancellationToken cancellationToken = default)
+    {
+        return Client.PostAsync(uri, content, cancellationToken);
+    }
+
     public Task<HttpResponseMessage> GetAsync(string uri, CancellationToken cancellationToken = default)
     {
         return Client.GetAsync(uri, cancellationToken);

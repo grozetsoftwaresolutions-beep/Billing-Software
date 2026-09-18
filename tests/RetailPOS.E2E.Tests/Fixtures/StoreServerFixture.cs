@@ -17,6 +17,7 @@ using RetailPOS.Contracts.Common;
 using RetailPOS.Domain.Entities.Backup;
 using RetailPOS.Domain.Entities.Terminals;
 using RetailPOS.Domain.Enums;
+using RetailPOS.Domain.ValueObjects;
 using RetailPOS.Infrastructure.Backup;
 using RetailPOS.Infrastructure.Persistence;
 using RetailPOS.Infrastructure.Persistence.Interceptors;
@@ -44,11 +45,21 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
     public string BackupsDirectory => _backupsDir;
     public string SecurityDirectory => _securityDir;
     public MockHardwareDeviceManager HardwareManager { get; }
+    public bool PreserveDataDirectoryOnDispose { get; set; }
 
-    public StoreServerFixture()
+    public StoreServerFixture(string? existingDataDirectory = null)
     {
-        _testId = Guid.NewGuid().ToString("N");
-        _dataDir = Path.Combine(Path.GetTempPath(), $"retailpos_e2e_{_testId}");
+        if (!string.IsNullOrWhiteSpace(existingDataDirectory) && Directory.Exists(existingDataDirectory))
+        {
+            _dataDir = existingDataDirectory;
+            _testId = Path.GetFileName(existingDataDirectory);
+        }
+        else
+        {
+            _testId = Guid.NewGuid().ToString("N");
+            _dataDir = Path.Combine(Path.GetTempPath(), $"retailpos_e2e_{_testId}");
+        }
+
         _dbPath = Path.Combine(_dataDir, "pos.db");
         _logsDir = Path.Combine(_dataDir, "Logs");
         _backupsDir = Path.Combine(_dataDir, "Backups");
@@ -107,6 +118,16 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
 
             services.RemoveAll<IWeighingScale>();
             services.AddSingleton<IWeighingScale>(HardwareManager.Scale);
+
+            // Configure isolated backup settings store pointing to fixture backups directory
+            var backupSettingsPath = Path.Combine(_dataDir, "backup_settings.json");
+            var settingsStore = new JsonBackupSettingsStore(backupSettingsPath);
+            settingsStore.SaveSettingsAsync(new BackupConfiguration
+            {
+                BackupStoragePath = _backupsDir
+            }).GetAwaiter().GetResult();
+            services.RemoveAll<IBackupSettingsStore>();
+            services.AddSingleton<IBackupSettingsStore>(settingsStore);
 
             // Register test middleware to inspect X-Test-Remote-IP header for simulated LAN remote IPs
             services.AddSingleton<IStartupFilter>(new TestRemoteIpStartupFilter());
@@ -257,6 +278,11 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
         catch
         {
             // Best effort pool clear
+        }
+
+        if (PreserveDataDirectoryOnDispose)
+        {
+            return;
         }
 
         if (Directory.Exists(_dataDir))
