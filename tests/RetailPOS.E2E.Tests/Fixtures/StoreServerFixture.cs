@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using RetailPOS.Application.Hardware;
 using RetailPOS.Application.Services;
 using RetailPOS.Contracts.Auth;
@@ -77,6 +78,12 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
     {
         builder.UseEnvironment("Testing");
 
+        builder.ConfigureLogging(logging =>
+        {
+            logging.ClearProviders();
+            logging.SetMinimumLevel(LogLevel.Warning);
+        });
+
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -87,7 +94,12 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
                 ["ServerConfiguration:DatabaseFileName"] = Path.GetFileName(_dbPath),
                 ["ServerConfiguration:StoreId"] = "STORE-E2E-001",
                 ["ServerConfiguration:StoreName"] = "Grozet Pilot E2E Store",
-                ["ServerConfiguration:ServerId"] = "SRV-E2E-01"
+                ["ServerConfiguration:ServerId"] = "SRV-E2E-01",
+                ["Serilog:MinimumLevel:Default"] = "Warning",
+                ["Serilog:MinimumLevel:Override:Microsoft"] = "Warning",
+                ["Serilog:MinimumLevel:Override:Microsoft.AspNetCore"] = "Warning",
+                ["Serilog:MinimumLevel:Override:Microsoft.EntityFrameworkCore"] = "Warning",
+                ["Serilog:MinimumLevel:Override:RetailPOS"] = "Warning"
             });
         });
 
