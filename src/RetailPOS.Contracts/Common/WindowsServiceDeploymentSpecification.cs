@@ -85,6 +85,62 @@ public static class WindowsServiceDeploymentSpecification
     public const string AllowedFirewallProfiles = "Domain,Private";
 
     /// <summary>
+    /// Required NTFS permissions for application binaries under Program Files: Read &amp; Execute only.
+    /// Strictly forbids Write, Modify, Delete, or Full Control to prevent binary tampering.
+    /// </summary>
+    public const string ProgramFilesRequiredPermissions = "(OI)(CI)RX";
+
+    /// <summary>
+    /// Required NTFS permissions for operational state directories under ProgramData: Modify.
+    /// Grants read, write, create, and delete for data files without granting administrative ownership or DACL mutation.
+    /// </summary>
+    public const string OperationalDirectoryServicePermissions = "(OI)(CI)M";
+
+    /// <summary>
+    /// Administrative NTFS permissions required for SYSTEM and BUILTIN\Administrators: Full Control.
+    /// </summary>
+    public const string AdministratorPermissions = "(OI)(CI)F";
+
+    /// <summary>
+    /// Operational directories under %ProgramData%\GROZET\RetailPOS that must have inheritance stripped
+    /// and access restricted exclusively to SYSTEM, BUILTIN\Administrators, and NT SERVICE\GrozetPOSServer.
+    /// Generic Users (BUILTIN\Users) are strictly denied all access (zero ACEs granted).
+    /// </summary>
+    public static readonly string[] OperationalDirectoriesToProtect =
+    [
+        RetailPOSPaths.DatabaseSubdirectory,
+        RetailPOSPaths.BackupsSubdirectory,
+        RetailPOSPaths.SecuritySubdirectory,
+        RetailPOSPaths.LogsSubdirectory,
+        RetailPOSPaths.StagingSubdirectory
+    ];
+
+    /// <summary>
+    /// Documents the diagnostic access model for the Logs directory:
+    /// Accessible strictly to NT SERVICE\GrozetPOSServer (Modify to write rolling logs),
+    /// BUILTIN\Administrators (Full Control for diagnostics and archiving), and NT AUTHORITY\SYSTEM (Full Control).
+    /// Standard local users (BUILTIN\Users) are strictly denied read/traverse/write permissions
+    /// to prevent diagnostic snooping (IPs, terminal identities, audit traces) or log tampering.
+    /// </summary>
+    public const string DiagnosticLogsAccessModel =
+        "Logs directory is restricted to NT SERVICE\\GrozetPOSServer (Modify), BUILTIN\\Administrators (Full Control), and NT AUTHORITY\\SYSTEM (Full Control). BUILTIN\\Users has no access.";
+
+    /// <summary>
+    /// Validates whether ordinary unprivileged Users are permitted access to a specified directory.
+    /// Returns false for all protected operational directories (Database, Backups, Security, Logs, Staging).
+    /// </summary>
+    public static bool IsUsersAccessPermitted(string directoryName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directoryName);
+        foreach (var protectedDir in OperationalDirectoriesToProtect)
+        {
+            if (string.Equals(directoryName, protectedDir, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Validates whether a firewall rule request conforms to approved port, protocol, and profile specifications.
     /// </summary>
     public static bool IsApprovedRule(string ruleName, int port, string protocol, string profile)

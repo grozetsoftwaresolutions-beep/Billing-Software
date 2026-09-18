@@ -26,21 +26,56 @@ The production filesystem strictly enforces separation between immutable applica
 
 ### Application Binaries (Immutable)
 * **Path**: `C:\Program Files\GROZET\RetailPOS\Server\`
+* **Owner**: `BUILTIN\Administrators`
+* **Inheritance**: Standard `Program Files` inheritance.
 * **Permissions**:
-  * `Administrators`: Full Control `(OI)(CI)F`
-  * `SYSTEM`: Full Control `(OI)(CI)F`
-  * `Users`: Read & Execute `(OI)(CI)RX`
-  * `NT SERVICE\GrozetPOSServer`: Read & Execute `(OI)(CI)RX` (strictly **NO** write access)
+  * `BUILTIN\Administrators`: Full Control `(OI)(CI)F`
+  * `NT AUTHORITY\SYSTEM`: Full Control `(OI)(CI)F`
+  * `BUILTIN\Users`: Read & Execute `(OI)(CI)RX`
+  * `NT SERVICE\GrozetPOSServer`: Read & Execute `(OI)(CI)RX` (strictly **NO** write, modify, delete, or full control permissions)
 
-### Operational State (Mutable)
-* **Root**: `%ProgramData%\GROZET\RetailPOS\`
-* **Inheritance**: Stripped of generic `Users` write/modify permissions; `SYSTEM` and `Administrators` retain Full Control.
-* **Directory Permissions for `NT SERVICE\GrozetPOSServer`**:
-  * `Database\`: Modify `(OI)(CI)M` (authoritative `grozet_pos.db` SQLite database with WAL and shared cache)
-  * `Backups\`: Modify `(OI)(CI)M` (online VACUUM backup snapshots and HMAC manifests)
-  * `Security\`: Modify `(OI)(CI)M` (`server_identity.key`, `store_identity.dat`, `backup_settings.json`, `security_settings.json`; generic Users access completely removed)
-  * `Logs\`: Modify `(OI)(CI)M` (rolling Serilog log files `retailpos-server-yyyyMMdd.log`)
-  * `Staging\`: Modify `(OI)(CI)M` (`Quarantine\` and `Recovery\` staging folders)
+### Operational State (Mutable Root)
+* **Path**: `%ProgramData%\GROZET\RetailPOS\`
+* **Owner**: `BUILTIN\Administrators`
+* **Inheritance**: Stripped of default inherited permissions (`/inheritance:r`).
+* **Root Permissions**:
+  * `BUILTIN\Administrators`: Full Control `(OI)(CI)F`
+  * `NT AUTHORITY\SYSTEM`: Full Control `(OI)(CI)F`
+  * `BUILTIN\Users`: Read & Execute `(RX)` on root container only (standard create-files and create-folders permissions stripped; unprivileged users cannot write rogue files into the root).
+
+### Operational State Directories (Strict Least-Privilege Isolation)
+Every operational subdirectory has inheritance completely removed (`/inheritance:r`) so that ordinary `Users` inherit **NO** access. Access is granted strictly via explicit Allow ACEs. No brittle Deny ACEs are used.
+
+* **`Database\`**:
+  * `BUILTIN\Administrators`: Full Control `(OI)(CI)F`
+  * `NT AUTHORITY\SYSTEM`: Full Control `(OI)(CI)F`
+  * `NT SERVICE\GrozetPOSServer`: Modify `(OI)(CI)M` (read/write/delete authoritative `grozet_pos.db` SQLite database, WAL, and SHM files)
+  * `BUILTIN\Users`: **NO ACCESS (Access Denied)**
+
+* **`Backups\`**:
+  * `BUILTIN\Administrators`: Full Control `(OI)(CI)F`
+  * `NT AUTHORITY\SYSTEM`: Full Control `(OI)(CI)F`
+  * `NT SERVICE\GrozetPOSServer`: Modify `(OI)(CI)M` (create and prune VACUUM backup snapshots and HMAC manifests)
+  * `BUILTIN\Users`: **NO ACCESS (Access Denied)**
+
+* **`Security\`**:
+  * `BUILTIN\Administrators`: Full Control `(OI)(CI)F`
+  * `NT AUTHORITY\SYSTEM`: Full Control `(OI)(CI)F`
+  * `NT SERVICE\GrozetPOSServer`: Modify `(OI)(CI)M` (`server_identity.key`, `store_identity.dat`, `backup_settings.json`, `security_settings.json`)
+  * `BUILTIN\Users`: **NO ACCESS (Access Denied)**
+
+* **`Logs\` (Diagnostic Access Model)**:
+  * `BUILTIN\Administrators`: Full Control `(OI)(CI)F` (diagnostic collection, inspection, and log archiving)
+  * `NT AUTHORITY\SYSTEM`: Full Control `(OI)(CI)F`
+  * `NT SERVICE\GrozetPOSServer`: Modify `(OI)(CI)M` (append-only write of rolling Serilog logs)
+  * `BUILTIN\Users`: **NO ACCESS (Access Denied)**
+  * *Diagnostic Rationale*: Server logs contain sensitive operational diagnostic details: terminal pairing attempts, cashier session events, client IP addresses, and transaction sequencing. Restricting log access prevents unprivileged local accounts from snooping on store activity or tampering with diagnostic records.
+
+* **`Staging\` (and `Staging\Quarantine`, `Staging\Recovery`)**:
+  * `BUILTIN\Administrators`: Full Control `(OI)(CI)F`
+  * `NT AUTHORITY\SYSTEM`: Full Control `(OI)(CI)F`
+  * `NT SERVICE\GrozetPOSServer`: Modify `(OI)(CI)M` (temporary staging during restore and crash recovery)
+  * `BUILTIN\Users`: **NO ACCESS (Access Denied)**
 
 ## 4. Service Lifecycle & SCM Failure Recovery
 

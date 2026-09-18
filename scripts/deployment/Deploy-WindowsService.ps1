@@ -136,17 +136,22 @@ function Install-GrozetService {
         & icacls.exe "$binDir" /grant "${ServiceAccount}:(OI)(CI)RX" /Q
     }
 
-    # ProgramData: SYSTEM & Admins Full Control; Service Account Modify on Database, Backups, Logs, Staging
-    Write-Host "  Configuring ProgramData ACLs on: $DataRoot"
-    & icacls.exe "$DataRoot\Database" /grant "${ServiceAccount}:(OI)(CI)M" /T /Q
-    & icacls.exe "$DataRoot\Backups" /grant "${ServiceAccount}:(OI)(CI)M" /T /Q
-    & icacls.exe "$DataRoot\Logs" /grant "${ServiceAccount}:(OI)(CI)M" /T /Q
-    & icacls.exe "$DataRoot\Staging" /grant "${ServiceAccount}:(OI)(CI)M" /T /Q
-    & icacls.exe "$DataRoot\Security" /grant "${ServiceAccount}:(OI)(CI)M" /T /Q
+    # ProgramData Root: Remove inherited permissions, grant SYSTEM & Administrators Full Control, grant Users RX (read-only, no write/create)
+    Write-Host "  Configuring ProgramData root ACLs on: $DataRoot"
+    & icacls.exe "$DataRoot" /inheritance:r
+    & icacls.exe "$DataRoot" /grant "NT AUTHORITY\SYSTEM:(OI)(CI)F" "BUILTIN\Administrators:(OI)(CI)F" "BUILTIN\Users:(RX)" /Q
 
-    # Restrict Security directory: remove generic Users write/modify
-    & icacls.exe "$DataRoot\Security" /remove:g "Users" 2>$null
-    & icacls.exe "$DataRoot\Security" /remove:g "BUILTIN\Users" 2>$null
+    # Operational State: Database, Backups, Security, Logs, Staging
+    # Strip ALL inherited permissions (/inheritance:r) to completely isolate from ordinary Users.
+    # Grant SYSTEM Full Control, Administrators Full Control, Service Account Modify.
+    # NO permissions granted to Users / BUILTIN\Users (Access Denied by default).
+    $operationalSubdirs = @("Database", "Backups", "Security", "Logs", "Staging")
+    foreach ($sub in $operationalSubdirs) {
+        $subPath = "$DataRoot\$sub"
+        Write-Host "  Securing operational directory: $subPath (Inheritance stripped, restricted to Service & Admins)"
+        & icacls.exe "$subPath" /inheritance:r
+        & icacls.exe "$subPath" /grant "NT AUTHORITY\SYSTEM:(OI)(CI)F" "BUILTIN\Administrators:(OI)(CI)F" "${ServiceAccount}:(OI)(CI)M" /T /Q
+    }
 
     # 5. Configure Windows Firewall Rules (TCP 5100, TCP 5101, UDP 5105; Domain & Private only)
     Write-Host "Configuring Windows Firewall rules for approved ports" -ForegroundColor Yellow
@@ -256,13 +261,37 @@ function Verify-GrozetService {
         }
     }
 
-    # 2. Check Directories
-    Write-Host "`nChecking ProgramData Directories:" -ForegroundColor Cyan
+    # 2. Check Directories and NTFS Permissions
+    Write-Host "`nChecking ProgramData Directories & NTFS Isolation:" -ForegroundColor Cyan
     $expectedDirs = @("Database", "Backups", "Security", "Logs", "Staging")
     foreach ($sub in $expectedDirs) {
         $p = "$DataRoot\$sub"
         if (Test-Path $p) {
             Write-Host "  [EXISTS] $p" -ForegroundColor Green
+            try {
+                $acl = Get-Acl -Path $p -ErrorAction SilentlyContinue
+                if ($null -ne $acl) {
+                    if ($acl.AreAccessRulesProtected) {
+                        Write-Host "    [OK] Inheritance disabled (protected from inherited Users permissions)" -ForegroundColor Green
+                    } else {
+                        Write-Host "    [WARN] Inheritance ENABLED - may inherit unprivileged Users permissions" -ForegroundColor Yellow
+                    }
+
+                    $usersRules = @($acl.Access | Where-Object { $_.IdentityReference.Value -match 'Users' })
+                    if ($usersRules.Count -eq 0) {
+                        Write-Host "    [OK] BUILTIN\Users has NO access rules" -ForegroundColor Green
+                    } else {
+                        Write-Host "    [WARN] BUILTIN\Users has access rule: $($usersRules[0].FileSystemRights)" -ForegroundColor Yellow
+                    }
+
+                    $svcRules = @($acl.Access | Where-Object { $_.IdentityReference.Value -eq $ServiceAccount })
+                    if ($svcRules.Count -gt 0) {
+                        Write-Host "    [OK] Service account ($ServiceAccount) granted: $($svcRules[0].FileSystemRights)" -ForegroundColor Green
+                    }
+                }
+            } catch {
+                Write-Host "    [INFO] ACL inspection not available: $_"
+            }
         } else {
             Write-Host "  [MISSING] $p" -ForegroundColor Yellow
         }

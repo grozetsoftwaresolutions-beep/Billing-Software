@@ -157,6 +157,154 @@ public sealed class WindowsServiceHostingTests : IDisposable
         Assert.Contains("5105", content);
     }
 
+    [Fact]
+    public void WindowsServiceDeploymentSpecification_NTFS_PermissionModel_ProtectsOperationalDirectories()
+    {
+        Assert.Equal("(OI)(CI)RX", WindowsServiceDeploymentSpecification.ProgramFilesRequiredPermissions);
+        Assert.Equal("(OI)(CI)M", WindowsServiceDeploymentSpecification.OperationalDirectoryServicePermissions);
+        Assert.Equal("(OI)(CI)F", WindowsServiceDeploymentSpecification.AdministratorPermissions);
+
+        var protectedDirs = WindowsServiceDeploymentSpecification.OperationalDirectoriesToProtect;
+        Assert.Contains(RetailPOSPaths.DatabaseSubdirectory, protectedDirs);
+        Assert.Contains(RetailPOSPaths.BackupsSubdirectory, protectedDirs);
+        Assert.Contains(RetailPOSPaths.SecuritySubdirectory, protectedDirs);
+        Assert.Contains(RetailPOSPaths.LogsSubdirectory, protectedDirs);
+        Assert.Contains(RetailPOSPaths.StagingSubdirectory, protectedDirs);
+
+        foreach (var dir in protectedDirs)
+        {
+            Assert.False(WindowsServiceDeploymentSpecification.IsUsersAccessPermitted(dir),
+                $"Directory '{dir}' must NOT permit ordinary Users access.");
+        }
+
+        Assert.False(string.IsNullOrWhiteSpace(WindowsServiceDeploymentSpecification.DiagnosticLogsAccessModel));
+        Assert.Contains("restricted", WindowsServiceDeploymentSpecification.DiagnosticLogsAccessModel, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Users has no access", WindowsServiceDeploymentSpecification.DiagnosticLogsAccessModel);
+    }
+
+    [Fact]
+    public void DeploymentScript_NTFS_AclCommands_EnforceInheritanceRemovalAndLeastPrivilege()
+    {
+        var dir = AppContext.BaseDirectory;
+        string? scriptPath = null;
+        while (!string.IsNullOrWhiteSpace(dir))
+        {
+            var candidate = Path.Combine(dir, "scripts", "deployment", "Deploy-WindowsService.ps1");
+            if (File.Exists(candidate))
+            {
+                scriptPath = candidate;
+                break;
+            }
+            var parent = Directory.GetParent(dir);
+            dir = parent?.FullName;
+        }
+
+        Assert.NotNull(scriptPath);
+        var content = File.ReadAllText(scriptPath);
+
+        // Verify inheritance removal commands
+        Assert.Contains(@"icacls.exe ""$DataRoot"" /inheritance:r", content);
+        Assert.Contains(@"icacls.exe ""$subPath"" /inheritance:r", content);
+
+        // Verify administrative Full Control
+        Assert.Contains(@"NT AUTHORITY\SYSTEM:(OI)(CI)F", content);
+        Assert.Contains(@"BUILTIN\Administrators:(OI)(CI)F", content);
+
+        // Verify Service Account Modify on operational directories and Read&Execute on Program Files
+        Assert.Contains(@"${ServiceAccount}:(OI)(CI)M", content);
+        Assert.Contains(@"${ServiceAccount}:(OI)(CI)RX", content);
+
+        // Verify Users receives strictly no write or modify permissions anywhere in operational directories
+        Assert.DoesNotContain(@"""Users:(OI)(CI)M""", content);
+        Assert.DoesNotContain(@"""BUILTIN\Users:(OI)(CI)M""", content);
+        Assert.DoesNotContain(@"""Users:(OI)(CI)F""", content);
+        Assert.DoesNotContain(@"""BUILTIN\Users:(OI)(CI)F""", content);
+    }
+
+    [Fact]
+    public void NTFS_OperationalDirectory_AclApplication_VerifiesNoUsersAccess()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var testDir = Path.Combine(Path.GetTempPath(), $"grozet_acl_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testDir);
+
+        try
+        {
+            var currentUserName = Environment.UserName;
+
+            // 1. Apply inheritance removal and least-privilege grants (simulating service account with current test user)
+            RunIcacls($"\"{testDir}\" /inheritance:r");
+            RunIcacls($"\"{testDir}\" /grant \"NT AUTHORITY\\SYSTEM:(OI)(CI)F\" \"BUILTIN\\Administrators:(OI)(CI)F\" \"{currentUserName}:(OI)(CI)M\" /Q");
+
+            // 2. Query parent directory ACL
+            var parentOutput = RunIcacls($"\"{testDir}\"");
+
+            Assert.Contains("SYSTEM:(OI)(CI)(F)", parentOutput);
+            Assert.Contains("Administrators:(OI)(CI)(F)", parentOutput);
+            Assert.Contains($"{currentUserName}:(OI)(CI)(M)", parentOutput);
+
+            // Crucial: BUILTIN\Users or Users must NOT be present
+            Assert.DoesNotContain("BUILTIN\\Users", parentOutput);
+            Assert.DoesNotContain("Users:(", parentOutput);
+
+            // Inherited flags (I) must NOT be present on root because inheritance was stripped
+            Assert.DoesNotContain("(I)(OI)(CI)", parentOutput);
+
+            // 3. Create child directory and child file to verify child inheritance
+            var childDir = Path.Combine(testDir, "SubDir");
+            Directory.CreateDirectory(childDir);
+            var childFile = Path.Combine(childDir, "child.txt");
+            File.WriteAllText(childFile, "Operational payload");
+
+            var childDirOutput = RunIcacls($"\"{childDir}\"");
+            Assert.Contains("(I)(OI)(CI)(F)", childDirOutput);
+            Assert.Contains("(I)(OI)(CI)(M)", childDirOutput);
+            Assert.DoesNotContain("BUILTIN\\Users", childDirOutput);
+
+            var childFileOutput = RunIcacls($"\"{childFile}\"");
+            Assert.Contains("(I)(F)", childFileOutput);
+            Assert.Contains("(I)(M)", childFileOutput);
+            Assert.DoesNotContain("BUILTIN\\Users", childFileOutput);
+        }
+        finally
+        {
+            // Reset permissions to ensure clean deletion
+            RunIcacls($"\"{testDir}\" /grant:r \"{Environment.UserName}:(OI)(CI)F\" /T /Q");
+            try
+            {
+                if (Directory.Exists(testDir))
+                    Directory.Delete(testDir, recursive: true);
+            }
+            catch
+            {
+                // Best effort cleanup
+            }
+        }
+    }
+
+    private static string RunIcacls(string arguments)
+    {
+        using var process = new System.Diagnostics.Process
+        {
+            StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "icacls.exe",
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+
+        process.Start();
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        return output;
+    }
+
     private sealed class TestHostEnvironment : IHostEnvironment
     {
         public string EnvironmentName { get; set; } = "Testing";
