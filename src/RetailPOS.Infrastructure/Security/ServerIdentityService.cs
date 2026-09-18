@@ -29,7 +29,7 @@ public sealed class ServerIdentityService : IServerIdentityService
     private readonly IStoreIdentityService? _storeIdentityService;
     private readonly IAuditLogRepository? _auditLogRepository;
     private readonly ServerIdentityProvisioningLock _lock = new();
-    private readonly NonceReplayCache _nonceCache = new();
+    private readonly NonceReplayCache _nonceCache;
 
     private ServerState _currentState = ServerState.FirstTimeSetupRequired;
     private ServerIdentityInfo? _cachedIdentity;
@@ -60,13 +60,15 @@ public sealed class ServerIdentityService : IServerIdentityService
         IStoreIdentityService? storeIdentityService = null,
         IAuditLogRepository? auditLogRepository = null,
         string? customSecurityDir = null,
-        string? customMutexName = null)
+        string? customMutexName = null,
+        NonceReplayCache? nonceCache = null)
     {
         _dbContextFactory = dbContextFactory;
         _dbContext = dbContext;
         _storeIdentityService = storeIdentityService;
         _auditLogRepository = auditLogRepository;
         _customMutexName = customMutexName;
+        _nonceCache = nonceCache ?? new NonceReplayCache();
 
         if (!string.IsNullOrWhiteSpace(customSecurityDir))
         {

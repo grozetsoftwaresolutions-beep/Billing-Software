@@ -165,6 +165,7 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 // Phase 12 Multi-Counter Networking, Terminal Registration & Concurrency Hardening
 builder.Services.AddSingleton<ITerminalHeartbeatTracker, TerminalHeartbeatTracker>();
 builder.Services.AddSingleton<INetworkDiagnosticsService, NetworkDiagnosticsService>();
+builder.Services.AddSingleton<NonceReplayCache>();
 builder.Services.AddScoped<IServerIdentityService>(sp =>
 {
     var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>().Value;
@@ -174,7 +175,8 @@ builder.Services.AddScoped<IServerIdentityService>(sp =>
         sp.GetService<RetailDbContext>(),
         sp.GetService<IStoreIdentityService>(),
         sp.GetService<IAuditLogRepository>(),
-        customSecurityDir: securityDir);
+        customSecurityDir: securityDir,
+        nonceCache: sp.GetRequiredService<NonceReplayCache>());
 });
 builder.Services.AddScoped<ITerminalEnrollmentTokenRepository, EfTerminalEnrollmentTokenRepository>();
 builder.Services.AddScoped<ITerminalEnrollmentService, TerminalEnrollmentService>();

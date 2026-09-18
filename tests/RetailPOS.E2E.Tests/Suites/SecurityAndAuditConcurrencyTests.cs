@@ -161,20 +161,48 @@ public sealed class SecurityAndAuditConcurrencyTests
         bool isValid = ChallengeProtocolHelper.VerifyCanonical(ecdsa, canonicalPayload, sigBytes, out var errCode, out var errMsg);
         Assert.True(isValid, $"Canonical verification failed: {errCode} - {errMsg}");
 
-        // 2. Replay defense validation on service:
-        using (var scope = fixture.Services.CreateScope())
+        // 2. Replay attack across separate HTTP request / DI scope (Request B):
+        using var clientB = fixture.CreateClient();
+        var replayResB = await clientB.PostAsJsonAsync("/api/v1/discovery/challenge", validReq);
+        Assert.Equal(HttpStatusCode.Conflict, replayResB.StatusCode);
+        var replayBodyB = await replayResB.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("REPLAYED_CHALLENGE_NONCE", replayBodyB?.ErrorCode);
+        Assert.False(replayBodyB?.Success ?? true);
+
+        // 3. Repeated replay attack across yet another separate HTTP request / DI scope (Request C):
+        using var clientC = fixture.CreateClient();
+        var replayResC = await clientC.PostAsJsonAsync("/api/v1/discovery/challenge", validReq);
+        Assert.Equal(HttpStatusCode.Conflict, replayResC.StatusCode);
+        var replayBodyC = await replayResC.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("REPLAYED_CHALLENGE_NONCE", replayBodyC?.ErrorCode);
+        Assert.False(replayBodyC?.Success ?? true);
+
+        // 4. Cross-DI-scope direct service regression verification:
+        var crossScopeNonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var crossScopeReq = new ServerChallengeRequestDto(
+            crossScopeNonce,
+            ChallengePurposes.ServerIdentityAuthentication,
+            DateTimeOffset.UtcNow);
+
+        using (var scope1 = fixture.Services.CreateScope())
         {
-            var serverIdentity = scope.ServiceProvider.GetRequiredService<IServerIdentityService>();
-            var scopedReq = new ServerChallengeRequestDto(
-                Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
-                ChallengePurposes.ServerIdentityAuthentication,
-                DateTimeOffset.UtcNow);
+            var s1 = scope1.ServiceProvider.GetRequiredService<IServerIdentityService>();
+            var r1 = await s1.SignChallengeAsync(crossScopeReq);
+            Assert.NotNull(r1);
+        }
 
-            var firstSign = await serverIdentity.SignChallengeAsync(scopedReq);
-            Assert.NotNull(firstSign);
+        using (var scope2 = fixture.Services.CreateScope())
+        {
+            var s2 = scope2.ServiceProvider.GetRequiredService<IServerIdentityService>();
+            var replayEx2 = await Assert.ThrowsAsync<DomainException>(() => s2.SignChallengeAsync(crossScopeReq));
+            Assert.Equal("REPLAYED_CHALLENGE_NONCE", replayEx2.ErrorCode);
+        }
 
-            var replayEx = await Assert.ThrowsAsync<DomainException>(() => serverIdentity.SignChallengeAsync(scopedReq));
-            Assert.Equal("REPLAYED_CHALLENGE_NONCE", replayEx.ErrorCode);
+        using (var scope3 = fixture.Services.CreateScope())
+        {
+            var s3 = scope3.ServiceProvider.GetRequiredService<IServerIdentityService>();
+            var replayEx3 = await Assert.ThrowsAsync<DomainException>(() => s3.SignChallengeAsync(crossScopeReq));
+            Assert.Equal("REPLAYED_CHALLENGE_NONCE", replayEx3.ErrorCode);
         }
 
         // 3. Stale / Expired request timestamp (> 60s in the past) -> 400 Bad Request
