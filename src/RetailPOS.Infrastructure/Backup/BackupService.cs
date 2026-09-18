@@ -20,6 +20,7 @@ using RetailPOS.Domain.Entities.Backup;
 using RetailPOS.Domain.Entities.Configuration;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Domain.ValueObjects;
+using Microsoft.Extensions.DependencyInjection;
 using RetailPOS.Infrastructure.Persistence;
 
 public sealed class BackupService : IBackupService
@@ -38,6 +39,7 @@ public sealed class BackupService : IBackupService
     private readonly IAuditLogRepository _auditRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly RetailDbContext _dbContext;
+    private readonly IServiceScopeFactory? _serviceScopeFactory;
     private readonly string _dataDir;
     private readonly string _quarantineDir;
     private readonly string _recoveryMarkerPath;
@@ -54,6 +56,7 @@ public sealed class BackupService : IBackupService
         IAuditLogRepository auditRepo,
         IUnitOfWork unitOfWork,
         RetailDbContext dbContext,
+        IServiceScopeFactory? serviceScopeFactory = null,
         string? customDataDir = null,
         string? customQuarantineDir = null,
         string? customRecoveryMarkerPath = null)
@@ -69,6 +72,7 @@ public sealed class BackupService : IBackupService
         _auditRepo = auditRepo;
         _unitOfWork = unitOfWork;
         _dbContext = dbContext;
+        _serviceScopeFactory = serviceScopeFactory;
 
         _dataDir = customDataDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Data");
         _quarantineDir = customQuarantineDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GrozetPOS", "Quarantine");
@@ -181,11 +185,31 @@ public sealed class BackupService : IBackupService
             await _backupRepo.InsertAsync(record, ct).ConfigureAwait(false);
             await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
 
-            // Step 12: Prune retention
-            _ = Task.Run(async () =>
+            // Step 12: Prune retention in background using isolated DI scope
+            if (_serviceScopeFactory != null)
             {
-                try { await _retentionService.PruneAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
-            }, CancellationToken.None);
+                var scopeFactory = _serviceScopeFactory;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var scope = scopeFactory.CreateScope();
+                        var scopedRetentionService = scope.ServiceProvider.GetRequiredService<IBackupRetentionService>();
+                        await scopedRetentionService.PruneAsync(CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Background retention failure must not crash host
+                    }
+                }, CancellationToken.None);
+            }
+            else
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await _retentionService.PruneAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
+                }, CancellationToken.None);
+            }
 
             // Step 13: Audit log
             await _auditRepo.RecordAsync(

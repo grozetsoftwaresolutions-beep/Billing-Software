@@ -23,6 +23,7 @@ using RetailPOS.Infrastructure.Persistence;
 using RetailPOS.Infrastructure.Persistence.Repositories;
 using RetailPOS.Infrastructure.Persistence.Interceptors;
 using RetailPOS.Infrastructure.Security;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 public class Phase11BackupServiceTests : IDisposable
@@ -591,6 +592,157 @@ public class Phase11BackupServiceTests : IDisposable
         {
             var countInScope = await testContext.Stores.CountAsync();
             Assert.True(countInScope >= 0);
+        }
+    }
+
+    [Fact]
+    public async Task BackupCreation_BackgroundRetention_UsesIndependentScope_DoesNotThrowObjectDisposedException()
+    {
+        // Arrange DI with Scoped RetailDbContext, Repositories, RetentionService, and BackupService
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddDbContext<RetailDbContext>(opts =>
+            opts.UseSqlite($"Data Source={_dbPath};Pooling=False"));
+        services.AddScoped<IBackupRepository, EfBackupRepository>();
+        services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<IAuditLogRepository, EfAuditLogRepository>();
+        services.AddSingleton<IDatabaseOperationGate, DatabaseOperationGate>();
+        services.AddSingleton<IDatabaseMaintenanceCoordinator, DatabaseMaintenanceCoordinator>();
+        services.AddSingleton<IBackupOperationCoordinator, BackupOperationCoordinator>();
+        services.AddSingleton<IMaintenanceScopeFactory, MaintenanceScopeFactory>();
+
+        var storeIdentity = new StoreIdentityService(_securityDir);
+        await storeIdentity.InitializeOrLoadAsync(Guid.Parse("11111111-1111-1111-1111-111111111111"), "Supermarket Central");
+        services.AddSingleton<IStoreIdentityService>(storeIdentity);
+
+        var manifestService = new BackupManifestService();
+        services.AddSingleton<IBackupManifestService>(manifestService);
+
+        var settingsPath = Path.Combine(_configDir, "backup_settings_lifetime.json");
+        var settingsStore = new JsonBackupSettingsStore(settingsPath);
+        await settingsStore.SaveSettingsAsync(new BackupConfiguration
+        {
+            BackupStoragePath = _backupsDir,
+            DailyBackupEnabled = true,
+            RetentionDailyCount = 1
+        });
+        services.AddSingleton<IBackupSettingsStore>(settingsStore);
+
+        // Spy retention service to capture the context instance and observe any exception
+        var pruneTaskCompletion = new TaskCompletionSource<bool>();
+        RetailDbContext? retentionContextUsed = null;
+        Exception? retentionException = null;
+
+        services.AddScoped<BackupRetentionService>();
+        services.AddScoped<IBackupRetentionService>(sp =>
+        {
+            var inner = sp.GetRequiredService<BackupRetentionService>();
+            var db = sp.GetRequiredService<RetailDbContext>();
+            return new RetentionSpyService(inner, db, (usedContext, ex) =>
+            {
+                retentionContextUsed = usedContext;
+                retentionException = ex;
+                if (ex != null)
+                {
+                    pruneTaskCompletion.TrySetException(ex);
+                }
+                else
+                {
+                    pruneTaskCompletion.TrySetResult(true);
+                }
+            });
+        });
+
+        services.AddScoped<IBackupService>(sp =>
+        {
+            return new BackupService(
+                sp.GetRequiredService<IBackupRepository>(),
+                sp.GetRequiredService<IBackupSettingsStore>(),
+                sp.GetRequiredService<IBackupRetentionService>(),
+                sp.GetRequiredService<IDatabaseMaintenanceCoordinator>(),
+                sp.GetRequiredService<IBackupOperationCoordinator>(),
+                sp.GetRequiredService<IMaintenanceScopeFactory>(),
+                sp.GetRequiredService<IStoreIdentityService>(),
+                sp.GetRequiredService<IBackupManifestService>(),
+                sp.GetRequiredService<IAuditLogRepository>(),
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<RetailDbContext>(),
+                serviceScopeFactory: sp.GetRequiredService<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>(),
+                customDataDir: _dataDir,
+                customQuarantineDir: _quarantineDir,
+                customRecoveryMarkerPath: Path.Combine(_testDir, "restore_state.json"));
+        });
+
+        using var rootProvider = services.BuildServiceProvider();
+
+        RetailDbContext? requestDbContext = null;
+        using (var requestScope = rootProvider.CreateScope())
+        {
+            requestDbContext = requestScope.ServiceProvider.GetRequiredService<RetailDbContext>();
+            var backupService = requestScope.ServiceProvider.GetRequiredService<IBackupService>();
+
+            // Execute backup creation within request scope
+            var record = await backupService.CreateBackupAsync(
+                BackupType.ScheduledDaily,
+                "SYSTEM_SCHEDULER",
+                "Scheduler Service",
+                "Daily snapshot");
+
+            Assert.NotNull(record);
+        } // requestScope disposed here: requestDbContext is disposed!
+
+        // Verify requestDbContext is disposed
+        Assert.NotNull(requestDbContext);
+        Assert.Throws<ObjectDisposedException>(() => requestDbContext.Backups.Count());
+
+        // Wait for background retention to complete
+        var completed = await Task.WhenAny(pruneTaskCompletion.Task, Task.Delay(5000));
+        Assert.Same(pruneTaskCompletion.Task, completed);
+        await pruneTaskCompletion.Task;
+
+        // Assert: Retention completed without error
+        Assert.Null(retentionException);
+
+        // Assert: Retention executed with a fresh, non-disposed context, NOT the requestDbContext
+        Assert.NotNull(retentionContextUsed);
+        Assert.NotSame(requestDbContext, retentionContextUsed);
+
+        // Assert: Database record state is valid and verifiable via a fresh scope
+        using (var verifyScope = rootProvider.CreateScope())
+        {
+            var verifyDb = verifyScope.ServiceProvider.GetRequiredService<RetailDbContext>();
+            var count = await verifyDb.Backups.CountAsync();
+            Assert.True(count >= 1);
+        }
+    }
+
+    private sealed class RetentionSpyService : IBackupRetentionService
+    {
+        private readonly IBackupRetentionService _inner;
+        private readonly RetailDbContext _dbContext;
+        private readonly Action<RetailDbContext, Exception?> _callback;
+
+        public RetentionSpyService(
+            IBackupRetentionService inner,
+            RetailDbContext dbContext,
+            Action<RetailDbContext, Exception?> callback)
+        {
+            _inner = inner;
+            _dbContext = dbContext;
+            _callback = callback;
+        }
+
+        public async Task PruneAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                await _inner.PruneAsync(ct);
+                _callback(_dbContext, null);
+            }
+            catch (Exception ex)
+            {
+                _callback(_dbContext, ex);
+                throw;
+            }
         }
     }
 }
