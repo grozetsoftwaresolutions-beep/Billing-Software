@@ -106,11 +106,11 @@ begin
   end;
 
   // Collision detection: Prohibit installation if Dedicated Server or Dedicated Client is already registered
-  ServerInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ServerAppId}' + '_is1') or
-                     RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ServerAppId}' + '_is1');
+  ServerInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{D37D15A2-3482-4E9A-963C-09B926F14920}_is1') or
+                     RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{D37D15A2-3482-4E9A-963C-09B926F14920}_is1');
 
-  ClientInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ClientAppId}' + '_is1') or
-                     RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ClientAppId}' + '_is1');
+  ClientInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{E5A4D3B1-5693-4F8B-A12C-18E2938B7401}_is1') or
+                     RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{E5A4D3B1-5693-4F8B-A12C-18E2938B7401}_is1');
 
   if ServerInstalled or ClientInstalled then
   begin

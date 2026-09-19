@@ -75,8 +75,8 @@ begin
   end;
 
   // Collision detection: Prohibit installation if Unified edition is already registered
-  UnifiedInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#UnifiedAppId}' + '_is1') or
-                      RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#UnifiedAppId}' + '_is1');
+  UnifiedInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{C8F24E67-91B5-4D3A-B804-6F294E8A1D39}_is1') or
+                      RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{C8F24E67-91B5-4D3A-B804-6F294E8A1D39}_is1');
 
   if UnifiedInstalled then
   begin

@@ -86,12 +86,20 @@ public sealed class InnoSetupInstallerTests
         Assert.Contains(@"#define HttpsPort ""5101""", content);
         Assert.Contains(@"#define DiscoveryPort ""5105""", content);
 
-        // MUST NOT centralize role-specific sections
+        // MUST NOT centralize role-specific sections or AppId in directives
         var normalized = content.Replace("\r", "");
         Assert.DoesNotContain("\n[Run]", normalized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\n[UninstallRun]", normalized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\n[UninstallDelete]", normalized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\nDefaultDirName", normalized, StringComparison.OrdinalIgnoreCase);
+
+        var nonCommentLines = content.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => !l.StartsWith(';') && !string.IsNullOrWhiteSpace(l));
+        foreach (var line in nonCommentLines)
+        {
+            Assert.DoesNotContain("AppId", line, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
@@ -131,7 +139,7 @@ public sealed class InnoSetupInstallerTests
         }
 
         // Validates collision detection against Unified installer
-        Assert.Contains("UnifiedAppId", content);
+        Assert.Contains(InnoSetupInstallerSpecification.UnifiedAppId.Trim('{', '}'), content);
     }
 
     [Fact]
@@ -172,7 +180,7 @@ public sealed class InnoSetupInstallerTests
         }
 
         // Validates collision detection against Unified installer
-        Assert.Contains("UnifiedAppId", content);
+        Assert.Contains(InnoSetupInstallerSpecification.UnifiedAppId.Trim('{', '}'), content);
     }
 
     [Fact]
@@ -213,8 +221,8 @@ public sealed class InnoSetupInstallerTests
         }
 
         // Validates collision detection against Server and Client standalone editions
-        Assert.Contains("ServerAppId", content);
-        Assert.Contains("ClientAppId", content);
+        Assert.Contains(InnoSetupInstallerSpecification.ServerAppId.Trim('{', '}'), content);
+        Assert.Contains(InnoSetupInstallerSpecification.ClientAppId.Trim('{', '}'), content);
 
         // Validates NextButtonClick component validation
         Assert.Contains("wpSelectComponents", content);
