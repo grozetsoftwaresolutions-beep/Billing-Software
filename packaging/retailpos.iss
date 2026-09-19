@@ -1,88 +1,146 @@
-; Grozet Offline Retail POS & Billing Software - Phase 14 Inno Setup Packaging Script
-; Authoritative Architecture v5.2.9.6 Compliant
+; Grozet Retail POS - Unified Single-Station Packaging Script
+; Authoritative Architecture v5.2.9.6 Compliant - Sub-Phase 16.4 Production Packaging
 
-#define AppName "Grozet Offline Retail POS"
-#define AppVersion "1.0.0"
-#define AppPublisher "Grozet Software Solutions"
-#define AppExeName "RetailPOS.Server.exe"
-#define ServiceName "GrozetRetailPOS"
+#include "retailpos-common.iss"
+
+#define AppName "Grozet Retail POS"
 
 [Setup]
-AppId={{D37D15A2-3482-4E9A-963C-09B926F14920}
+; New deterministic Unified Single-Station product identity
+AppId={{C8F24E67-91B5-4D3A-B804-6F294E8A1D39}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\{#AppName}
+DefaultDirName={autopf}\GROZET\RetailPOS
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
+OutputDir=Output
 OutputBaseFilename=GrozetRetailPOS_Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\Server\{#AppServerExe}
+CloseApplications=yes
+RestartApplications=no
+
+[Types]
+Name: "full"; Description: "Full Station (Server Service & POS Terminal - Recommended for Single Counter or Server PC)"
+Name: "server"; Description: "Server Station (Windows Service, Central Database & Multi-Counter Sync)"
+Name: "client"; Description: "Counter Terminal Station (POS Client Application only)"
+Name: "custom"; Description: "Custom Installation"; Flags: iscustom
+
+[Components]
+Name: "server"; Description: "Grozet Retail POS Server Service (Authoritative local database, background services, counter sync)"; Types: full server
+Name: "client"; Description: "Grozet Retail POS Counter Terminal (Cashier billing and store operations UI)"; Types: full client
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Components: client
 
 [Dirs]
-Name: "{commonappdata}\RetailPOS"; Permissions: system-full admins-full users-readexec
-Name: "{commonappdata}\RetailPOS\Database"; Permissions: system-full admins-full
-Name: "{commonappdata}\RetailPOS\Backups"; Permissions: system-full admins-full
-Name: "{commonappdata}\RetailPOS\Staging"; Permissions: system-full admins-full
-Name: "{commonappdata}\RetailPOS\Secrets"; Permissions: system-full admins-readexec
-Name: "{commonappdata}\RetailPOS\Audits"; Permissions: system-full admins-readexec
+; Server Mutable Operational Directories (%ProgramData%\GROZET\RetailPOS)
+Name: "{commonappdata}\GROZET\RetailPOS"; Components: server
+Name: "{commonappdata}\GROZET\RetailPOS\Database"; Components: server
+Name: "{commonappdata}\GROZET\RetailPOS\Backups"; Components: server
+Name: "{commonappdata}\GROZET\RetailPOS\Security"; Components: server
+Name: "{commonappdata}\GROZET\RetailPOS\Logs"; Components: server
+Name: "{commonappdata}\GROZET\RetailPOS\Staging"; Components: server
+Name: "{commonappdata}\GROZET\RetailPOS\Staging\Quarantine"; Components: server
+Name: "{commonappdata}\GROZET\RetailPOS\Staging\Recovery"; Components: server
+
+; Client Mutable Operational Directories (%ProgramData%\GROZET\RetailPOS\Client)
+Name: "{commonappdata}\GROZET\RetailPOS\Client"; Components: client
+Name: "{commonappdata}\GROZET\RetailPOS\Client\Config"; Components: client
+Name: "{commonappdata}\GROZET\RetailPOS\Client\Security"; Components: client
+Name: "{commonappdata}\GROZET\RetailPOS\Client\Logs"; Components: client
 
 [Files]
-Source: "..\src\RetailPOS.Server\bin\Release\net10.0\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Server Published Binaries (Self-Contained win-x64 ReadyToRun)
+Source: "..\src\RetailPOS.Server\bin\Release\net10.0\publish\win-x64\*"; DestDir: "{app}\Server"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: server
+
+; Deployment Scripts packaged alongside Server
+Source: "..\scripts\deployment\Deploy-WindowsService.ps1"; DestDir: "{app}\Server\scripts"; Flags: ignoreversion; Components: server
+
+; Client Published Binaries (Self-Contained win-x64 ReadyToRun)
+Source: "..\src\RetailPOS.Client\bin\Release\net10.0\publish\win-x64\*"; DestDir: "{app}\Client"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: client
+
+[Icons]
+; Client Shortcuts
+Name: "{autoprograms}\{#AppName}\Grozet POS Terminal"; Filename: "{app}\Client\{#AppClientExe}"; Components: client
+Name: "{autodesktop}\Grozet POS Terminal"; Filename: "{app}\Client\{#AppClientExe}"; Tasks: desktopicon; Components: client
 
 [Run]
-; Step 1: Run Safe Database Migration under administrative staging
-Filename: "{app}\{#AppExeName}"; Parameters: "--migrate-database --staging-dir ""{commonappdata}\RetailPOS\Staging"""; StatusMsg: "Migrating Database Safely..."; Flags: runhidden runascurrentuser
+; Server Role: Automate Windows Service registration, ACL isolation, and Firewall configuration
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Server\scripts\Deploy-WindowsService.ps1"" -Action Install -BinaryPath ""{app}\Server\{#AppServerExe}"" -DataRoot ""{commonappdata}\GROZET\RetailPOS"" -HttpPort {#HttpPort} -HttpsPort {#HttpsPort} -DiscoveryPort {#DiscoveryPort}"; StatusMsg: "Configuring Windows Service, NTFS Permissions, and Firewall..."; Flags: runhidden; Components: server
 
-; Step 2: Configure Domain & Private Firewall Rules
-Filename: "{app}\{#AppExeName}"; Parameters: "--configure-firewall --port 5001 --rule-name ""GrozetRetailPOS_LAN_Server"""; StatusMsg: "Configuring LAN Firewall..."; Flags: runhidden runascurrentuser
-
-; Step 3: Install and Start Windows Service
-Filename: "{sys}\sc.exe"; Parameters: "create {#ServiceName} binPath= ""{app}\{#AppExeName}"" start= auto obj= LocalSystem DisplayName= ""{#AppName} Background Host"""; StatusMsg: "Registering Windows Service..."; Flags: runhidden
-Filename: "{sys}\sc.exe"; Parameters: "failure {#ServiceName} reset= 86400 actions= restart/60000/restart/60000//1000"; Flags: runhidden
-Filename: "{sys}\net.exe"; Parameters: "start {#ServiceName}"; StatusMsg: "Starting Service..."; Flags: runhidden
+; Client Role: Optional post-install launch
+Filename: "{app}\Client\{#AppClientExe}"; Description: "{cm:LaunchProgram,Grozet POS Terminal}"; Flags: nowait postinstall skipifsilent; Components: client
 
 [UninstallRun]
-Filename: "{sys}\net.exe"; Parameters: "stop {#ServiceName}"; Flags: runhidden
-Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceName}"; Flags: runhidden
+; Server Role: Gracefully stop service, remove service from SCM, and remove firewall rules
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Server\scripts\Deploy-WindowsService.ps1"" -Action Uninstall -BinaryPath ""{app}\Server\{#AppServerExe}"" -DataRoot ""{commonappdata}\GROZET\RetailPOS"""; Flags: runhidden; Components: server
 
 [UninstallDelete]
-; Crucial Architecture Invariant: Never delete CommonAppData ({commonappdata}\RetailPOS) on uninstall!
-; pos.db, backups, audits, certificates, settings strictly preserved.
-Type: files; Name: "{app}\*.*"
+; CRITICAL OWNERSHIP RULE: Inno Setup uninstaller deletes only files listed in unins000.dat.
+; Recursive deletions (filesandordirs or {app}\*) are STRICTLY PROHIBITED.
+; Only remove directories if they are genuinely empty.
+; NEVER delete {commonappdata}\GROZET\RetailPOS! All customer/store data is permanently preserved.
+Type: dirifempty; Name: "{app}\Server\scripts"
+Type: dirifempty; Name: "{app}\Server"
+Type: dirifempty; Name: "{app}\Client"
+Type: dirifempty; Name: "{app}"
 
 [Code]
-// Native Win32 BCrypt/CryptGenRandom entropy generation & DPAPI staging protection
-function BCryptGenRandom(hAlgorithm: THandle; pbBuffer: AnsiString; cbBuffer: Cardinal; dwFlags: Cardinal): Integer;
-external 'BCryptGenRandom@bcrypt.dll stdcall delayload';
-
-const
-  BCRYPT_USE_SYSTEM_PREFERRED_RNG = $00000002;
-
-function GenerateInstallEntropy(): AnsiString;
+function InitializeSetup(): Boolean;
 var
-  Buffer: AnsiString;
-  Res: Integer;
+  ServerInstalled: Boolean;
+  ClientInstalled: Boolean;
 begin
-  SetLength(Buffer, 32);
-  Res := BCryptGenRandom(0, Buffer, 32, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
-  if Res = 0 then
-    Result := Buffer
-  else
-    Result := 'FallbackEntropySeedGrozetRetailPOS2026';
+  // Environment validation: Ensure 64-bit Windows
+  if not Is64BitInstallMode then
+  begin
+    SuppressibleMsgBox('Grozet Retail POS requires a 64-bit Windows operating system (x64). Installation cannot proceed.', mbCriticalError, MB_OK, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  // Collision detection: Prohibit installation if Dedicated Server or Dedicated Client is already registered
+  ServerInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ServerAppId}' + '_is1') or
+                     RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ServerAppId}' + '_is1');
+
+  ClientInstalled := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ClientAppId}' + '_is1') or
+                     RegKeyExists(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + '{#ClientAppId}' + '_is1');
+
+  if ServerInstalled or ClientInstalled then
+  begin
+    SuppressibleMsgBox('A standalone Server or Client installation of Grozet Retail POS was detected on this computer.' + #13#10 +
+                       'Please uninstall the standalone package before installing the Unified edition.',
+                       mbCriticalError, MB_OK, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  Result := True;
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  OpId: String;
-  Entropy: AnsiString;
+function NextButtonClick(CurPageID: Integer): Boolean;
 begin
-  if CurStep = ssPostInstall then
+  Result := True;
+  if CurPageID = wpSelectComponents then
   begin
-    Log('Post-install completed. Verifying staging and service registration.');
+    if not IsComponentSelected('server') and not IsComponentSelected('client') then
+    begin
+      SuppressibleMsgBox('You must select at least one component to install: Server or Counter Terminal.', mbError, MB_OK, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    Log('Uninstallation completed. Store databases, backups, and security material in %ProgramData% were strictly preserved.');
   end;
 end;
