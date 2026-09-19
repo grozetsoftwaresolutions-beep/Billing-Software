@@ -75,6 +75,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                     {
                         context.Connection.RemoteIpAddress = ip;
                     }
+                    else
+                    {
+                        context.Connection.RemoteIpAddress ??= IPAddress.Loopback;
+                    }
                     await nextMiddleware(context);
                 });
                 next(app);

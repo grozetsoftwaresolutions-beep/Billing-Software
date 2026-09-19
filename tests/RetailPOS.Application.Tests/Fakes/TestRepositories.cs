@@ -148,6 +148,16 @@ public sealed class FakeStoreRepository : IStoreRepository
 
         return Task.CompletedTask;
     }
+
+    public Task InitializeStoreSecurityAsync(Guid storeGuid, string storeName, string validatorHash, string wrappedKey, CancellationToken cancellationToken = default)
+    {
+        if (CurrentStore == null)
+        {
+            CurrentStore = new Store(1, storeName);
+        }
+        CurrentStore.InitializeSecurityRoot(storeGuid, validatorHash, wrappedKey);
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class FakeSessionManager : ISessionManager

@@ -21,16 +21,19 @@ public sealed class DatabaseMaintenanceMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
 
-        // Bypass maintenance gate for emergency recovery, health, or backup status queries
+        // Bypass maintenance gate for emergency recovery, health, backup status queries, or rotation orchestration
         if (path.StartsWith("/api/v1/admin/recovery", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/health", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/api/v1/health", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/api/v1/backups/settings", StringComparison.OrdinalIgnoreCase) ||
-            path.Equals("/api/v1/backups/history", StringComparison.OrdinalIgnoreCase))
+            path.Equals("/api/v1/backups/history", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/v1/admin/security/confirm-recovery-key-rotation", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/v1/admin/security/cancel-recovery-key-rotation", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
+
 
         IOperationLease lease;
         try

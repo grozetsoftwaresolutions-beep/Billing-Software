@@ -41,6 +41,6 @@ public interface ISrp6aPairingService
     Task FinalizePairingAsync(
         Guid pairingOperationId,
         byte[] finalizeProof,
-        byte[] kPake,
+        byte[]? kPake = null,
         CancellationToken ct = default);
 }

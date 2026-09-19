@@ -271,4 +271,26 @@ public sealed class EfStoreRepository : IStoreRepository
             store.UpdateBillingSettings(cashRoundingEnabled ?? store.CashRoundingEnabled, timeZoneId ?? store.TimeZoneId);
         }
     }
+
+    public async Task InitializeStoreSecurityAsync(
+        Guid storeGuid,
+        string storeName,
+        string validatorHash,
+        string wrappedKey,
+        CancellationToken cancellationToken = default)
+    {
+        var store = await GetStoreAsync(cancellationToken);
+        if (store == null)
+        {
+            store = new Store(1, storeName);
+            store.InitializeSecurityRoot(storeGuid, validatorHash, wrappedKey);
+            await _context.Stores.AddAsync(store, cancellationToken);
+        }
+        else
+        {
+            store.UpdateStoreName(storeName);
+            store.InitializeSecurityRoot(storeGuid, validatorHash, wrappedKey);
+        }
+    }
 }
+

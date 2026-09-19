@@ -12,7 +12,16 @@ public enum PairingState
     REVOKED
 }
 
+public sealed record CreatePairingSessionRequestDto(
+    Guid TerminalId);
+
+public sealed record CreatePairingSessionResponseDto(
+    Guid PairingOperationId,
+    string HumanPairingCode,
+    string SaltHex);
+
 public sealed record PairingChallengeResponseDto(
+
     Guid PairingOperationId,
     Guid StoreId,
     Guid TerminalId,

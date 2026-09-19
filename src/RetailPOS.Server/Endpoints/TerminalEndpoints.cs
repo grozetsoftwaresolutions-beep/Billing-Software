@@ -1,12 +1,16 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using RetailPOS.Application.Persistence;
+using RetailPOS.Application.Security.Srp6a;
 using RetailPOS.Application.Services;
 using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Terminals;
 using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Enums;
 using RetailPOS.Server.Middleware;
+using System.Security.Cryptography;
+
 
 namespace RetailPOS.Server.Endpoints;
 
@@ -252,6 +256,194 @@ public static class TerminalEndpoints
         .WithName("DecommissionTerminal")
         .WithSummary("Permanently decommissions a POS terminal.");
 
+        // SRP-6a Pairing Endpoints
+        var pairingGroup = endpoints.MapGroup("/api/v1/terminals/pairing");
+
+        pairingGroup.MapPost("/create-session", async (
+            CreatePairingSessionRequestDto request,
+            HttpContext context,
+            ISrp6aPairingService pairingService,
+            IStoreIdentityService storeIdentityService,
+            CancellationToken ct) =>
+        {
+            var remoteIp = context.Connection.RemoteIpAddress;
+            var isLoopback = remoteIp != null && LoopbackRecoveryMiddleware.IsLoopbackAddress(remoteIp);
+            var hasRole = context.Items.TryGetValue("CurrentUserRole", out var roleObj) &&
+                (roleObj is RoleType.Owner || roleObj is RoleType.Admin);
+
+            if (!isLoopback && !hasRole)
+            {
+                return Results.Json(
+                    ApiResponse.Fail<object>("Pairing session creation requires Owner/Admin permissions or loopback access.", "PERMISSION_DENIED"),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var storeId = storeIdentityService.StoreId;
+            var (pairingOpId, code, salt) = await pairingService.CreatePairingSessionAsync(storeId, request.TerminalId, ct);
+            return Results.Ok(ApiResponse.Ok(new CreatePairingSessionResponseDto(pairingOpId, code, Convert.ToHexString(salt))));
+        })
+        .WithName("CreatePairingSession")
+        .WithSummary("Creates an SRP-6a terminal pairing session.");
+
+        pairingGroup.MapGet("/pending", async (
+            HttpContext context,
+            IPairingTokenRepository pairingRepo,
+            CancellationToken ct) =>
+        {
+            var remoteIp = context.Connection.RemoteIpAddress;
+            var isLoopback = remoteIp != null && LoopbackRecoveryMiddleware.IsLoopbackAddress(remoteIp);
+            var hasRole = context.Items.TryGetValue("CurrentUserRole", out var roleObj) &&
+                (roleObj is RoleType.Owner || roleObj is RoleType.Admin);
+
+            if (!isLoopback && !hasRole)
+            {
+                return Results.Json(
+                    ApiResponse.Fail<object>("Viewing pending pairings requires Owner/Admin permissions or loopback access.", "PERMISSION_DENIED"),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var pending = await pairingRepo.GetPendingAsync(ct);
+            return Results.Ok(ApiResponse.Ok(pending));
+        })
+        .WithName("GetPendingPairingSessions")
+        .WithSummary("Lists pending SRP-6a terminal pairing sessions.");
+
+        pairingGroup.MapGet("/challenge/{pairingOperationId:guid}", async (
+            Guid pairingOperationId,
+            IPairingTokenRepository pairingRepo,
+            CancellationToken ct) =>
+        {
+            var token = await pairingRepo.GetByIdAsync(pairingOperationId, ct);
+            if (token == null)
+            {
+                return Results.NotFound(ApiResponse.Fail<object>("Pairing session not found.", "PAIRING_NOT_FOUND"));
+            }
+
+            return Results.Ok(ApiResponse.Ok(new PairingChallengeResponseDto(
+                token.PairingOperationId,
+                token.StoreId,
+                token.TerminalId,
+                Convert.ToHexString(token.Salt))));
+        })
+        .WithName("GetPairingChallenge")
+        .WithSummary("Retrieves salt and IDs for SRP-6a pairing.");
+
+        pairingGroup.MapPost("/initiate", async (
+            PairingInitiateRequestDto request,
+            ISrp6aPairingService pairingService,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var clientA = Convert.FromBase64String(request.ClientEphemeralABase64);
+                var serverB = await pairingService.InitiatePairingAsync(request.PairingOperationId, clientA, ct);
+                return Results.Ok(ApiResponse.Ok(new PairingInitiateResponseDto(
+                    request.PairingOperationId,
+                    Convert.ToBase64String(serverB))));
+            }
+            catch (DomainException ex)
+            {
+                return Results.BadRequest(ApiResponse.Fail<object>(ex.Message, ex.ErrorCode));
+            }
+        })
+        .WithName("InitiatePairing")
+        .WithSummary("Initiates SRP-6a ephemeral exchange.");
+
+        pairingGroup.MapPost("/confirm", async (
+            PairingConfirmRequestDto request,
+            ISrp6aPairingService pairingService,
+            IServerIdentityService serverIdentityService,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var serverIdentity = await serverIdentityService.GetServerIdentityAsync(ct)
+                    ?? throw new DomainException("Server identity not available.", "SERVER_IDENTITY_NOT_AVAILABLE");
+                var clientM1 = Convert.FromBase64String(request.ClientEvidenceM1Base64);
+                var retryToken = Convert.FromBase64String(request.RetryAuthTokenBase64);
+                var tmkBytes = RandomNumberGenerator.GetBytes(32);
+
+                var result = await pairingService.ConfirmPairingAsync(
+                    request.PairingOperationId,
+                    clientM1,
+                    request.SASConfirmationCode,
+                    request.CandidateF1,
+                    retryToken,
+                    tmkBytes,
+                    serverIdentity.ServerFingerprint,
+                    serverIdentity.PublicKeySpki,
+                    ct);
+
+                return Results.Ok(ApiResponse.Ok(new PairingConfirmResponseDto(
+                    request.PairingOperationId,
+                    result.ServerEvidenceM2,
+                    result.EncryptedTmk,
+                    result.PublicKeySpki)));
+            }
+            catch (DomainException ex)
+            {
+                return Results.BadRequest(ApiResponse.Fail<object>(ex.Message, ex.ErrorCode));
+            }
+        })
+        .WithName("ConfirmPairing")
+        .WithSummary("Confirms SRP-6a client evidence and returns TMK.");
+
+        pairingGroup.MapPost("/retry", async (
+            PairingRetryRequestDto request,
+            ISrp6aPairingService pairingService,
+            IServerIdentityService serverIdentityService,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var serverIdentity = await serverIdentityService.GetServerIdentityAsync(ct)
+                    ?? throw new DomainException("Server identity not available.", "SERVER_IDENTITY_NOT_AVAILABLE");
+                var retryToken = Convert.FromBase64String(request.RetryAuthTokenBase64);
+
+                var result = await pairingService.RetryPairingAsync(
+                    request.PairingOperationId,
+                    request.StoreId,
+                    request.TerminalId,
+                    request.CandidateF1,
+                    retryToken,
+                    serverIdentity.ServerFingerprint,
+                    serverIdentity.PublicKeySpki,
+                    ct);
+
+                return Results.Ok(ApiResponse.Ok(new PairingConfirmResponseDto(
+                    request.PairingOperationId,
+                    result.ServerEvidenceM2,
+                    result.EncryptedTmk,
+                    result.PublicKeySpki)));
+            }
+            catch (DomainException ex)
+            {
+                return Results.BadRequest(ApiResponse.Fail<object>(ex.Message, ex.ErrorCode));
+            }
+        })
+        .WithName("RetryPairing")
+        .WithSummary("Retries pairing using retry token.");
+
+        pairingGroup.MapPost("/finalize", async (
+            PairingFinalizeRequestDto request,
+            ISrp6aPairingService pairingService,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var proofBytes = Convert.FromBase64String(request.FinalizeProofBase64);
+                await pairingService.FinalizePairingAsync(request.PairingOperationId, proofBytes, null, ct);
+                return Results.Ok(ApiResponse.Ok(new { Message = "Pairing successfully finalized." }));
+            }
+            catch (DomainException ex)
+            {
+                return Results.BadRequest(ApiResponse.Fail<object>(ex.Message, ex.ErrorCode));
+            }
+        })
+        .WithName("FinalizePairing")
+        .WithSummary("Finalizes terminal pairing operation.");
+
         return endpoints;
     }
 }
+

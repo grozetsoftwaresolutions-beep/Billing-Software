@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using RetailPOS.Application.Persistence;
 using RetailPOS.Application.Security;
 using RetailPOS.Contracts.Auth;
@@ -5,6 +7,7 @@ using RetailPOS.Contracts.Common;
 using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Entities.Users;
 using RetailPOS.Domain.Enums;
+
 
 namespace RetailPOS.Application.Services;
 
@@ -22,6 +25,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly IPasswordHasher _passwordHasher;
     private readonly ISessionManager _sessionManager;
     private readonly IServerIdentityService? _serverIdentityService;
+    private readonly IStoreIdentityService? _storeIdentityService;
 
     public AuthenticationService(
         IUserRepository userRepo,
@@ -31,7 +35,8 @@ public sealed class AuthenticationService : IAuthenticationService
         IUnitOfWork unitOfWork,
         IPasswordHasher passwordHasher,
         ISessionManager sessionManager,
-        IServerIdentityService? serverIdentityService = null)
+        IServerIdentityService? serverIdentityService = null,
+        IStoreIdentityService? storeIdentityService = null)
     {
         _userRepo = userRepo;
         _terminalRepo = terminalRepo;
@@ -41,6 +46,7 @@ public sealed class AuthenticationService : IAuthenticationService
         _passwordHasher = passwordHasher;
         _sessionManager = sessionManager;
         _serverIdentityService = serverIdentityService;
+        _storeIdentityService = storeIdentityService;
     }
 
     public async Task<SetupStatusResponse> GetSetupStatusAsync(CancellationToken cancellationToken = default)
@@ -53,6 +59,12 @@ public sealed class AuthenticationService : IAuthenticationService
     public async Task<ApiResponse<object>> SetupOwnerAsync(SetupOwnerRequest request, CancellationToken cancellationToken = default)
     {
         // Atomic serializable transaction: database is the ultimate authority preventing race conditions
+        byte[]? recoveryKeyBytes = null;
+        byte[]? storeSigningKey = null;
+        char[]? recoveryKeyChars = null;
+        string? recoveryKeyHex = null;
+        Guid storeGuid = Guid.NewGuid();
+
         try
         {
             await using var tx = await _unitOfWork.BeginSerializableTransactionAsync(cancellationToken);
@@ -88,11 +100,45 @@ public sealed class AuthenticationService : IAuthenticationService
                 RoleType.Owner);
 
             await _userRepo.AddAsync(owner, cancellationToken);
-            await _storeRepo.UpdateStoreNameAsync(request.StoreName.Trim(), cancellationToken);
+
+            if (_storeIdentityService != null)
+            {
+                recoveryKeyBytes = RandomNumberGenerator.GetBytes(32);
+                recoveryKeyHex = Convert.ToHexString(recoveryKeyBytes);
+                recoveryKeyChars = recoveryKeyHex.ToCharArray();
+                storeSigningKey = RandomNumberGenerator.GetBytes(32);
+
+                var (validatorHash, wrappedKey) = _storeIdentityService.WrapStoreSigningKey(
+                    storeGuid,
+                    recoveryKeyChars,
+                    storeSigningKey);
+
+                await _storeRepo.InitializeStoreSecurityAsync(
+                    storeGuid,
+                    request.StoreName.Trim(),
+                    validatorHash,
+                    wrappedKey,
+                    cancellationToken);
+            }
+            else
+            {
+                await _storeRepo.UpdateStoreNameAsync(request.StoreName.Trim(), cancellationToken);
+            }
+
             await _auditRepo.RecordAsync("Auth", "OWNER_SETUP", normalizedUsername, "First-run store owner setup completed.", cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
+
+            if (_storeIdentityService != null && recoveryKeyChars != null && storeSigningKey != null)
+            {
+                await _storeIdentityService.InitializeNewStoreIdentityAsync(
+                    storeGuid,
+                    request.StoreName.Trim(),
+                    storeSigningKey,
+                    recoveryKeyChars,
+                    cancellationToken);
+            }
 
             if (_serverIdentityService != null)
             {
@@ -104,6 +150,15 @@ public sealed class AuthenticationService : IAuthenticationService
                 {
                     throw new DomainException($"PROVISION_FAILED: {ex.GetType().Name} - {ex.Message} - {ex.StackTrace}", "PROVISION_FAILED");
                 }
+            }
+
+            if (!string.IsNullOrEmpty(recoveryKeyHex))
+            {
+                return ApiResponse.Ok<object>(new SetupOwnerResponse(
+                    recoveryKeyHex,
+                    storeGuid,
+                    request.StoreName.Trim(),
+                    "Store owner account configured successfully. Store master recovery key generated."));
             }
 
             return ApiResponse.Ok<object>(new { Message = "Store owner account configured successfully." });
@@ -122,7 +177,14 @@ public sealed class AuthenticationService : IAuthenticationService
 
             throw;
         }
+        finally
+        {
+            if (recoveryKeyBytes != null) CryptographicOperations.ZeroMemory(recoveryKeyBytes);
+            if (storeSigningKey != null) CryptographicOperations.ZeroMemory(storeSigningKey);
+            if (recoveryKeyChars != null) CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(recoveryKeyChars.AsSpan()));
+        }
     }
+
 
     public async Task<ApiResponse<LoginResponse>> LoginWithPasswordAsync(LoginPasswordRequest request, CancellationToken cancellationToken = default)
     {

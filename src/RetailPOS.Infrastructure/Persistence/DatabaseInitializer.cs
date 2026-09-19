@@ -1125,6 +1125,68 @@ END;
             }
         }
 
+        // 14. Sub-Phase 16.5 Store Security & Key Rotation schema upgrades
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='stores';";
+        var storesTableExists = (await cmd.ExecuteScalarAsync(cancellationToken)) != null;
+        if (storesTableExists)
+        {
+            cmd.CommandText = "PRAGMA table_info(stores);";
+            var existingStoreCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var colReader = await cmd.ExecuteReaderAsync(cancellationToken))
+            {
+                while (await colReader.ReadAsync(cancellationToken))
+                {
+                    existingStoreCols.Add(colReader.GetString(1));
+                }
+            }
+
+            if (!existingStoreCols.Contains("store_guid"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN store_guid TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("master_key_validator_hash"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN master_key_validator_hash TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("wrapped_store_signing_key"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN wrapped_store_signing_key TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("pending_rotation_validator_hash"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN pending_rotation_validator_hash TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("pending_wrapped_store_signing_key"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN pending_wrapped_store_signing_key TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("rotation_state"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN rotation_state TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("rotation_token_hash"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN rotation_token_hash TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("rotation_token_expires_at_utc"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN rotation_token_expires_at_utc TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (!existingStoreCols.Contains("rotation_initiated_by_user_id"))
+            {
+                cmd.CommandText = "ALTER TABLE stores ADD COLUMN rotation_initiated_by_user_id TEXT NULL;";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
         // 13. PRAGMA integrity and foreign key checks
         cmd.CommandText = "PRAGMA foreign_key_check;";
         using (var fkReader = await cmd.ExecuteReaderAsync(cancellationToken))

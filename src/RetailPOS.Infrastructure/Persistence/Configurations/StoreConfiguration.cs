@@ -21,6 +21,16 @@ public sealed class StoreConfiguration : IEntityTypeConfiguration<Store>
         builder.Property(s => s.CashRoundingEnabled).HasColumnName("cash_rounding_enabled").HasDefaultValue(true);
         builder.Property(s => s.TimeZoneId).HasColumnName("time_zone_id").HasMaxLength(100).HasDefaultValue("India Standard Time");
 
+        builder.Property(s => s.StoreGuid).HasColumnName("store_guid");
+        builder.Property(s => s.MasterKeyValidatorHash).HasColumnName("master_key_validator_hash").HasMaxLength(64);
+        builder.Property(s => s.WrappedStoreSigningKey).HasColumnName("wrapped_store_signing_key");
+        builder.Property(s => s.PendingRotationValidatorHash).HasColumnName("pending_rotation_validator_hash").HasMaxLength(64);
+        builder.Property(s => s.PendingWrappedStoreSigningKey).HasColumnName("pending_wrapped_store_signing_key");
+        builder.Property(s => s.RotationState).HasColumnName("rotation_state").HasMaxLength(50);
+        builder.Property(s => s.RotationTokenHash).HasColumnName("rotation_token_hash").HasMaxLength(64);
+        builder.Property(s => s.RotationTokenExpiresAtUtc).HasColumnName("rotation_token_expires_at_utc");
+        builder.Property(s => s.RotationInitiatedByUserId).HasColumnName("rotation_initiated_by_user_id").HasMaxLength(100);
+
         builder.OwnsOne(s => s.Currency, cb =>
         {
             cb.Property(c => c.Code).HasColumnName("currency_code").HasMaxLength(10).HasDefaultValue("INR");

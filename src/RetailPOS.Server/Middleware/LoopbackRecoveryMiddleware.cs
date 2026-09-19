@@ -23,6 +23,23 @@ public sealed class LoopbackRecoveryMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
 
+        if (path.Equals("/api/v1/auth/setup-owner", StringComparison.OrdinalIgnoreCase))
+        {
+            var remoteIp = context.Connection.RemoteIpAddress;
+            if (remoteIp is null || !IsLoopbackAddress(remoteIp))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+
+                var failEnvelope = ApiResponse.Fail<object>(
+                    "Store bootstrap setup is only permitted from the local host console.",
+                    "REMOTE_BOOTSTRAP_SETUP_FORBIDDEN");
+
+                await JsonSerializer.SerializeAsync(context.Response.Body, failEnvelope, JsonOptions);
+                return;
+            }
+        }
+
         if (path.Equals("/api/v1/admin/recovery/provision-replacement-identity", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/api/v1/admin/recovery/restore", StringComparison.OrdinalIgnoreCase))
         {
@@ -40,6 +57,24 @@ public sealed class LoopbackRecoveryMiddleware
                 return;
             }
         }
+
+        if (path.StartsWith("/api/v1/admin/security", StringComparison.OrdinalIgnoreCase))
+        {
+            var remoteIp = context.Connection.RemoteIpAddress;
+            if (remoteIp is null || !IsLoopbackAddress(remoteIp))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+
+                var failEnvelope = ApiResponse.Fail<object>(
+                    "Recovery key rotation is only permitted from the local host console.",
+                    "REMOTE_ROTATION_FORBIDDEN");
+
+                await JsonSerializer.SerializeAsync(context.Response.Body, failEnvelope, JsonOptions);
+                return;
+            }
+        }
+
 
         await _next(context);
     }

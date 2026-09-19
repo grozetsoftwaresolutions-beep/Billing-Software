@@ -46,6 +46,15 @@ public sealed class EfPairingTokenRepository : IPairingTokenRepository
         return tokens.FirstOrDefault();
     }
 
+    public async Task<System.Collections.Generic.IReadOnlyList<PairingEnrollmentToken>> GetPendingAsync(CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        return await _context.PairingTokens
+            .Where(t => t.State != "COMPLETED" && t.State != "REVOKED" && t.ExpiresAtUtc > now)
+            .OrderByDescending(t => t.CreatedAtUtc)
+            .ToListAsync(ct);
+    }
+
     public async Task InvalidatePendingTokensOnServerRestartAsync(CancellationToken ct = default)
     {
         var pendingTokens = await _context.PairingTokens

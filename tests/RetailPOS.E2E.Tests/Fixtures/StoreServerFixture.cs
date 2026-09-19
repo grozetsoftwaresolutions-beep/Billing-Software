@@ -259,6 +259,10 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
                     {
                         context.Connection.RemoteIpAddress = ip;
                     }
+                    else
+                    {
+                        context.Connection.RemoteIpAddress ??= IPAddress.Loopback;
+                    }
                     await nextMiddleware(context);
                 });
                 next(app);

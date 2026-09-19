@@ -81,6 +81,8 @@ public sealed class TerminalValidationMiddleware
             path.StartsWith("/api/v1/discovery", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/api/v1/auth", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/api/v1/admin/recovery", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/admin/security", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/terminals/pairing", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/api/v1/terminals/heartbeat", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/api/v1/terminals/enroll", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/api/v1/terminals/repair", StringComparison.OrdinalIgnoreCase) ||
@@ -89,6 +91,7 @@ public sealed class TerminalValidationMiddleware
             await _next(context);
             return;
         }
+
 
         var endpoint = context.GetEndpoint();
         var requiresTerminal = endpoint?.Metadata.GetMetadata<RequireTerminalAttribute>() != null;

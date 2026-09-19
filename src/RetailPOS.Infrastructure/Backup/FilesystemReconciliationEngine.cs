@@ -151,6 +151,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
                         if (File.Exists(tmpInstallPath)) try { File.Delete(tmpInstallPath); } catch { }
 
                         File.Copy(safetySnapshotPath, primaryDbPath, overwrite: true);
+                        ReconcileIdentityRollback(marker);
                         DeleteMarker();
                         _gate.TransitionToAvailable();
                         return;
@@ -167,6 +168,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
                 {
                     File.Move(rollbackDbPath, primaryDbPath, overwrite: true);
                     File.Move(rollbackWalPath, primaryWalPath, overwrite: true);
+                    ReconcileIdentityRollback(marker);
                     DeleteMarker();
                     _gate.TransitionToAvailable();
                     return;
@@ -195,6 +197,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
                     {
                         File.Move(rollbackWalPath, primaryWalPath, overwrite: true);
                     }
+                    ReconcileIdentityRollback(marker);
                     DeleteMarker();
                     _gate.TransitionToAvailable();
                     return;
@@ -202,6 +205,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
                 else if (File.Exists(safetySnapshotPath) && VerifySqliteFile(safetySnapshotPath))
                 {
                     File.Copy(safetySnapshotPath, primaryDbPath, overwrite: true);
+                    ReconcileIdentityRollback(marker);
                     DeleteMarker();
                     _gate.TransitionToAvailable();
                     return;
@@ -221,6 +225,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
                     if (File.Exists(tmpInstallPath)) try { File.Delete(tmpInstallPath); } catch { }
 
                     File.Copy(safetySnapshotPath, primaryDbPath, overwrite: true);
+                    ReconcileIdentityRollback(marker);
                     DeleteMarker();
                     _gate.TransitionToAvailable();
                     return;
@@ -236,10 +241,13 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
                 if (File.Exists(rollbackDbPath)) try { File.Delete(rollbackDbPath); } catch { }
                 if (File.Exists(rollbackWalPath)) try { File.Delete(rollbackWalPath); } catch { }
                 if (File.Exists(tmpInstallPath)) try { File.Delete(tmpInstallPath); } catch { }
+                var idRollback = Path.Combine(RetailPOSPaths.GetDefaultSecurityDirectory(), "store_identity.dat.rollback_staging");
+                if (File.Exists(idRollback)) try { File.Delete(idRollback); } catch { }
 
                 DeleteMarker();
                 _gate.TransitionToAvailable();
                 return;
+
         }
 
         _gate.TransitionToEmergencyLockdown("Ambiguous recovery marker and physical file state on startup.");
@@ -255,6 +263,20 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
             }
         }
         catch { }
+    }
+
+    private void ReconcileIdentityRollback(RestoreStateMarker marker)
+    {
+        var identityRollbackPath = Path.Combine(RetailPOSPaths.GetDefaultSecurityDirectory(), "store_identity.dat.rollback_staging");
+        if (File.Exists(identityRollbackPath))
+        {
+            _storeIdentity.RestoreIdentitySafetySnapshot(identityRollbackPath);
+            try { File.Delete(identityRollbackPath); } catch { }
+        }
+        else if (!string.IsNullOrWhiteSpace(marker.IdentitySafetySnapshotPath) && File.Exists(marker.IdentitySafetySnapshotPath))
+        {
+            _storeIdentity.RestoreIdentitySafetySnapshot(marker.IdentitySafetySnapshotPath);
+        }
     }
 
     private async Task ReconcilePublicationArtifactsAsync(CancellationToken ct)
@@ -360,6 +382,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         public Guid RestoreOperationId { get; set; }
         public string State { get; set; } = string.Empty;
         public string SafetySnapshotPath { get; set; } = string.Empty;
+        public string? IdentitySafetySnapshotPath { get; set; }
         public string TargetBackupPath { get; set; } = string.Empty;
         public DateTime TimestampUtc { get; set; }
         public string Mac { get; set; } = string.Empty;

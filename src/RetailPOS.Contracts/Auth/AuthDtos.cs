@@ -1,4 +1,4 @@
-﻿using RetailPOS.Domain.Enums;
+using RetailPOS.Domain.Enums;
 
 namespace RetailPOS.Contracts.Auth;
 
@@ -12,6 +12,13 @@ public sealed record SetupOwnerRequest(
     string FullName,
     string Password,
     string Pin);
+
+public sealed record SetupOwnerResponse(
+    string StoreMasterRecoveryKey,
+    Guid StoreGuid,
+    string StoreName,
+    string Message);
+
 
 public sealed record LoginPasswordRequest(
     string Username,

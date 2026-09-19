@@ -112,6 +112,72 @@ public sealed class ServerIdentityService : IServerIdentityService
         int storeCount = await db.Stores.CountAsync(ct);
         int userCount = await db.Users.CountAsync(ct);
 
+        if (storeCount == 1)
+        {
+            var storeToReconcile = await db.Stores.FirstOrDefaultAsync(ct);
+            if (storeToReconcile != null)
+            {
+                if (storeToReconcile.RotationState == "ROTATION_STAGED")
+                {
+                    if (storeToReconcile.RotationTokenExpiresAtUtc.HasValue && storeToReconcile.RotationTokenExpiresAtUtc.Value < DateTime.UtcNow)
+                    {
+                        storeToReconcile.CancelRotation();
+                        if (_auditLogRepository != null)
+                        {
+                            await _auditLogRepository.RecordAsync(
+                                "Store",
+                                "EXPIRED_ROTATION_ABORTED_ON_STARTUP",
+                                "System",
+                                "Expired staged recovery key rotation cancelled during startup.",
+                                ct);
+                        }
+                        await db.SaveChangesAsync(ct);
+                        _storeIdentityService?.CleanStagedIdentity();
+                    }
+                }
+                else if (storeToReconcile.RotationState == "ROTATION_COMMIT_REQUESTED")
+                {
+                    bool inv1 = !string.IsNullOrWhiteSpace(storeToReconcile.PendingRotationValidatorHash) && storeToReconcile.PendingRotationValidatorHash.Length == 64;
+                    bool inv2 = File.Exists(Path.Combine(_securityDir, "store_identity.dat.rotation_staged")) || File.Exists(Path.Combine(_securityDir, "store_identity.dat"));
+                    bool inv3 = storeToReconcile.StoreGuid != Guid.Empty;
+                    bool inv4 = !string.IsNullOrWhiteSpace(storeToReconcile.PendingWrappedStoreSigningKey);
+                    bool inv5 = storeToReconcile.RotationState == "ROTATION_COMMIT_REQUESTED";
+                    bool inv6 = storeToReconcile.RotationTokenHash == null;
+                    bool inv7 = storeToReconcile.MasterKeyValidatorHash != storeToReconcile.PendingRotationValidatorHash;
+
+                    if (inv1 && inv2 && inv3 && inv4 && inv5 && inv6 && inv7)
+                    {
+                        _storeIdentityService?.PromoteStagedIdentity();
+                        storeToReconcile.FinalizeRotation();
+                        if (_auditLogRepository != null)
+                        {
+                            await _auditLogRepository.RecordAsync(
+                                "Store",
+                                "ROTATION_COMMITTED_POST_CRASH_RECONCILIATION",
+                                "System",
+                                "Post-crash recovery key rotation committed during startup reconciliation.",
+                                ct);
+                        }
+                        await db.SaveChangesAsync(ct);
+                        if (_storeIdentityService != null)
+                        {
+                            await _storeIdentityService.ReloadActiveIdentityAsync(ct);
+                        }
+                    }
+                    else
+                    {
+                        CurrentState = ServerState.StartupIntegrityFailure;
+                        return ServerState.StartupIntegrityFailure;
+                    }
+                }
+                else if (storeToReconcile.RotationState == null)
+                {
+                    // Sweep orphan staged files
+                    _storeIdentityService?.CleanStagedIdentity();
+                }
+            }
+        }
+
         var identityResult = InspectIdentityFile();
 
         // 11-permutation exhaustive startup state evaluation:
@@ -134,6 +200,36 @@ public sealed class ServerIdentityService : IServerIdentityService
         {
             var store = await db.Stores.AsNoTracking().FirstAsync(ct);
             Guid expectedStoreGuid = ResolveStoreGuid(store);
+
+            // Invariant: SQLite is authoritative for the active recovery generation.
+            // Never allow filesystem identity-B alone to make B authoritative.
+            if (!string.IsNullOrWhiteSpace(store.MasterKeyValidatorHash))
+            {
+                var identityDatPath = Path.Combine(_securityDir, "store_identity.dat");
+                if (File.Exists(identityDatPath))
+                {
+                    try
+                    {
+                        var encBytes = File.ReadAllBytes(identityDatPath);
+                        var decBytes = OperatingSystem.IsWindows() ? ProtectedData.Unprotect(encBytes, null, DataProtectionScope.LocalMachine) : encBytes;
+                        using var doc = JsonDocument.Parse(decBytes);
+                        if (doc.RootElement.TryGetProperty("MasterKeyValidatorHashHex", out var valProp))
+                        {
+                            var onDiskVal = valProp.GetString();
+                            if (!string.Equals(onDiskVal, store.MasterKeyValidatorHash, StringComparison.OrdinalIgnoreCase))
+                            {
+                                determinedState = ServerState.StartupIntegrityFailure;
+                                CurrentState = determinedState;
+                                return determinedState;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Decryption failure falls into IdentityRecoveryRequired below
+                    }
+                }
+            }
 
             switch (identityResult.State)
             {
@@ -182,6 +278,7 @@ public sealed class ServerIdentityService : IServerIdentityService
         {
             await ReconcilePostCrashAuditAsync(ct);
         }
+
 
         return determinedState;
     }
@@ -299,10 +396,33 @@ public sealed class ServerIdentityService : IServerIdentityService
 
         Guid storeGuid = ResolveStoreGuid(store);
 
-        bool isValidKey = AuthenticateRecoveryKey(request.StoreMasterRecoveryKey);
+        bool isValidKey = AuthenticateRecoveryKey(request.StoreMasterRecoveryKey, store);
         if (!isValidKey)
         {
             throw new DomainException("Invalid store master recovery key.", "INVALID_MASTER_RECOVERY_KEY");
+        }
+
+        // Reconstruct store_identity.dat using authoritative wrapped key if present
+        if (_storeIdentityService != null)
+        {
+            if (!string.IsNullOrWhiteSpace(store.WrappedStoreSigningKey))
+            {
+                byte[] recoveredSigningKey = _storeIdentityService.UnwrapStoreSigningKey(
+                    storeGuid,
+                    request.StoreMasterRecoveryKey.ToCharArray(),
+                    store.WrappedStoreSigningKey);
+
+                await _storeIdentityService.InitializeNewStoreIdentityAsync(
+                    storeGuid,
+                    store.StoreName,
+                    recoveredSigningKey,
+                    request.StoreMasterRecoveryKey.ToCharArray(),
+                    ct);
+            }
+            else
+            {
+                _storeIdentityService.EnrollReplacementServer(storeGuid, request.StoreMasterRecoveryKey.ToCharArray());
+            }
         }
 
         // 4. Generate new ECDSA P-256 key pair
@@ -467,6 +587,11 @@ public sealed class ServerIdentityService : IServerIdentityService
 
     private Guid ResolveStoreGuid(Store store)
     {
+        if (store.StoreGuid != Guid.Empty)
+        {
+            return store.StoreGuid;
+        }
+
         if (_storeIdentityService != null && _storeIdentityService.StoreId != Guid.Empty)
         {
             return _storeIdentityService.StoreId;
@@ -475,24 +600,40 @@ public sealed class ServerIdentityService : IServerIdentityService
         return Guid.Parse($"00000000-0000-0000-0000-{store.Id:D12}");
     }
 
-    private bool AuthenticateRecoveryKey(string plainTextKey)
+    private bool AuthenticateRecoveryKey(string plainTextKey, Store store)
     {
-        if (string.IsNullOrWhiteSpace(plainTextKey))
+        if (string.IsNullOrWhiteSpace(plainTextKey) || plainTextKey.Length != 64)
             return false;
 
-        if (_storeIdentityService != null && plainTextKey.Length == 64)
+        var storeGuid = ResolveStoreGuid(store);
+
+        if (_storeIdentityService != null)
         {
             try
             {
+                if (!string.IsNullOrWhiteSpace(store.MasterKeyValidatorHash))
+                {
+                    return _storeIdentityService.ValidateMasterRecoveryKeyAgainstVerifier(
+                        storeGuid,
+                        plainTextKey.ToCharArray(),
+                        store.MasterKeyValidatorHash);
+                }
+
                 if (_storeIdentityService.ValidateMasterRecoveryKey(plainTextKey.ToCharArray()))
                     return true;
             }
             catch { }
         }
 
-        // Also permit standard hex key validation
-        return plainTextKey.Length == 64 && !plainTextKey.Any(c => !Uri.IsHexDigit(c));
+        // If no validator is registered in SQLite (empty/unprovisioned DB during early tests), allow valid hex
+        if (string.IsNullOrWhiteSpace(store.MasterKeyValidatorHash))
+        {
+            return plainTextKey.Length == 64 && !plainTextKey.Any(c => !Uri.IsHexDigit(c));
+        }
+
+        return false;
     }
+
 
     private void PublishIdentityRecord(PersistedIdentityModel payload)
     {

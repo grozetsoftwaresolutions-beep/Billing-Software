@@ -480,20 +480,26 @@ public sealed class BackupService : IBackupService
         var rollbackWalPath = $"{primaryDbPath}-wal.rollback_staging";
         var tmpInstallPath = $"{primaryDbPath}.tmp_install";
 
-        var safetySnapshotPath = Path.Combine(targetDir, $"grozet_pos_safety_snapshot_{DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture)}_{restoreOpId:N}.db");
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        var safetySnapshotPath = Path.Combine(targetDir, $"grozet_pos_safety_snapshot_{timestamp}_{restoreOpId:N}.db");
+        var identitySafetySnapshotPath = Path.Combine(targetDir, $"store_identity_safety_snapshot_{timestamp}_{restoreOpId:N}.dat");
+        var identityRollbackPath = Path.Combine(RetailPOSPaths.GetDefaultSecurityDirectory(), "store_identity.dat.rollback_staging");
 
         // Write marker: Prepared
-        await WriteMarkerAsync(restoreOpId, "Prepared", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
+        await WriteMarkerAsync(restoreOpId, "Prepared", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
 
-        // Create & verify Safety Snapshot
+        // Create & verify Dual Safety Snapshot (both grozet_pos.db AND store_identity.dat)
         if (File.Exists(primaryDbPath))
         {
             File.Copy(primaryDbPath, safetySnapshotPath, overwrite: true);
             ValidateSqliteIntegrity(safetySnapshotPath);
         }
 
+        _storeIdentity.CreateIdentitySafetySnapshot(identitySafetySnapshotPath);
+        _storeIdentity.CreateIdentitySafetySnapshot(identityRollbackPath);
+
         // Write marker: SafetySnapshotCreated
-        await WriteMarkerAsync(restoreOpId, "SafetySnapshotCreated", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
+        await WriteMarkerAsync(restoreOpId, "SafetySnapshotCreated", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
 
         // Close pools and stage DB
         SqliteConnection.ClearAllPools();
@@ -512,79 +518,121 @@ public sealed class BackupService : IBackupService
         }
 
         // Write marker: ProductionDbStaged
-        await WriteMarkerAsync(restoreOpId, "ProductionDbStaged", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
+        await WriteMarkerAsync(restoreOpId, "ProductionDbStaged", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
 
         // Copy candidate to tmp_install and rename to grozet_pos.db
         File.Copy(targetDbPath, tmpInstallPath, overwrite: true);
         File.Move(tmpInstallPath, primaryDbPath, overwrite: true);
 
         // Write marker: TargetInstalled
-        await WriteMarkerAsync(restoreOpId, "TargetInstalled", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
+        await WriteMarkerAsync(restoreOpId, "TargetInstalled", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
 
-        // Run migrations & checks under maintenance scope
-        using (_scopeFactory.CreateMaintenanceScope())
+        try
         {
-            await WriteMarkerAsync(restoreOpId, "MigrationStarted", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
-            await _dbContext.Database.EnsureCreatedAsync(ct).ConfigureAwait(false);
-            await WriteMarkerAsync(restoreOpId, "MigrationCompleted", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
-
-            await WriteMarkerAsync(restoreOpId, "VerificationStarted", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
-            ValidateSqliteIntegrity(primaryDbPath);
-            await WriteMarkerAsync(restoreOpId, "VerificationCompleted", safetySnapshotPath, targetDbPath, ct).ConfigureAwait(false);
-
-            // Idempotently insert audit record
-            var audit = new AuditLog(
-                0,
-                "DATABASE_RESTORED",
-                nameof(BackupRecord),
-                fileName,
-                Guid.TryParse(triggeredByUserId, out var uid) ? uid : null,
-                null,
-                $"Database successfully restored from {fileName}. RestoreOpId: {restoreOpId}",
-                true);
-
-            try
+            // Run migrations & checks under maintenance scope
+            using (_scopeFactory.CreateMaintenanceScope())
             {
-                await _dbContext.AuditLogs.AddAsync(audit, ct).ConfigureAwait(false);
-                await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+                await WriteMarkerAsync(restoreOpId, "MigrationStarted", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
+                await _dbContext.Database.EnsureCreatedAsync(ct).ConfigureAwait(false);
+                await DatabaseInitializer.UpgradeSchemaIfNeededAsync(_dbContext, ct).ConfigureAwait(false);
+                await WriteMarkerAsync(restoreOpId, "MigrationCompleted", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
+
+                await WriteMarkerAsync(restoreOpId, "VerificationStarted", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
+                ValidateSqliteIntegrity(primaryDbPath);
+                await WriteMarkerAsync(restoreOpId, "VerificationCompleted", safetySnapshotPath, targetDbPath, identitySafetySnapshotPath, ct).ConfigureAwait(false);
+
+                // Reload active identity from current or restored state
+                await _storeIdentity.ReloadActiveIdentityAsync(ct).ConfigureAwait(false);
+
+                // Idempotently insert audit record
+                var audit = new AuditLog(
+                    0,
+                    "DATABASE_RESTORED",
+                    nameof(BackupRecord),
+                    fileName,
+                    Guid.TryParse(triggeredByUserId, out var uid) ? uid : null,
+                    null,
+                    $"Database successfully restored from {fileName}. RestoreOpId: {restoreOpId}",
+                    true);
+
+                try
+                {
+                    await _dbContext.AuditLogs.AddAsync(audit, ct).ConfigureAwait(false);
+                    await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Database-enforced unique index IX_audit_logs_database_restored guarantees idempotency
+                }
             }
-            catch
+
+            // Cleanup rollback staging and marker on success
+            if (File.Exists(rollbackDbPath)) try { File.Delete(rollbackDbPath); } catch { }
+            if (File.Exists(rollbackWalPath)) try { File.Delete(rollbackWalPath); } catch { }
+            if (File.Exists(identityRollbackPath)) try { File.Delete(identityRollbackPath); } catch { }
+            if (File.Exists(_recoveryMarkerPath)) try { File.Delete(_recoveryMarkerPath); } catch { }
+
+            var restoredRec = await _backupRepo.GetByFileNameAsync(safeBasename, ct).ConfigureAwait(false);
+            if (restoredRec != null)
             {
-                // Database-enforced unique index IX_audit_logs_database_restored guarantees idempotency
+                return MapToDto(restoredRec);
             }
+
+            return new BackupRecordDto
+            {
+                BackupOperationId = restoreOpId,
+                FileName = safeBasename,
+                FilePath = targetDbPath,
+                SizeBytes = manifest.SizeBytes,
+                DatabaseSha256 = manifest.DatabaseSha256,
+                Type = manifest.Type,
+                Status = "Succeeded",
+                FileState = "Active",
+                Origin = "LocalGenerated",
+                StoreId = manifest.StoreId,
+                StoreName = manifest.StoreName,
+                AppVersion = manifest.AppVersion,
+                SchemaVersion = manifest.SchemaVersion,
+                CreatedAtUtc = manifest.CreatedAtUtc,
+                CompletedAtUtc = DateTime.UtcNow,
+                TriggeredByUserId = triggeredByUserId,
+                TriggeredByUserName = triggeredByUserName
+            };
         }
-
-        // Cleanup rollback staging and marker
-        if (File.Exists(rollbackDbPath)) try { File.Delete(rollbackDbPath); } catch { }
-        if (File.Exists(rollbackWalPath)) try { File.Delete(rollbackWalPath); } catch { }
-        if (File.Exists(_recoveryMarkerPath)) try { File.Delete(_recoveryMarkerPath); } catch { }
-
-        var restoredRec = await _backupRepo.GetByFileNameAsync(safeBasename, ct).ConfigureAwait(false);
-        if (restoredRec != null)
+        catch (Exception ex)
         {
-            return MapToDto(restoredRec);
+            // Atomic Dual Rollback: restore both DB and store_identity.dat
+            SqliteConnection.ClearAllPools();
+
+            if (File.Exists(primaryDbPath)) try { File.Delete(primaryDbPath); } catch { }
+            if (File.Exists(primaryWalPath)) try { File.Delete(primaryWalPath); } catch { }
+            if (File.Exists(primaryShmPath)) try { File.Delete(primaryShmPath); } catch { }
+
+            if (File.Exists(rollbackDbPath))
+            {
+                File.Move(rollbackDbPath, primaryDbPath, overwrite: true);
+                if (File.Exists(rollbackWalPath))
+                {
+                    File.Move(rollbackWalPath, primaryWalPath, overwrite: true);
+                }
+            }
+            else if (File.Exists(safetySnapshotPath))
+            {
+                File.Copy(safetySnapshotPath, primaryDbPath, overwrite: true);
+            }
+
+            if (File.Exists(identityRollbackPath))
+            {
+                _storeIdentity.RestoreIdentitySafetySnapshot(identityRollbackPath);
+                try { File.Delete(identityRollbackPath); } catch { }
+            }
+            else if (File.Exists(identitySafetySnapshotPath))
+            {
+                _storeIdentity.RestoreIdentitySafetySnapshot(identitySafetySnapshotPath);
+            }
+
+            throw new DomainException($"Restore failed and both database and identity were rolled back to pre-restore state: {ex.Message}", "RESTORE_FAILED");
         }
-
-        return new BackupRecordDto
-        {
-            BackupOperationId = restoreOpId,
-            FileName = safeBasename,
-            FilePath = targetDbPath,
-            SizeBytes = manifest.SizeBytes,
-            DatabaseSha256 = manifest.DatabaseSha256,
-            Type = manifest.Type,
-            Status = "Succeeded",
-            FileState = "Active",
-            Origin = "LocalGenerated",
-            StoreId = manifest.StoreId,
-            StoreName = manifest.StoreName,
-            AppVersion = manifest.AppVersion,
-            SchemaVersion = manifest.SchemaVersion,
-            CreatedAtUtc = manifest.CreatedAtUtc,
-            CompletedAtUtc = DateTime.UtcNow,
-            TriggeredByUserId = triggeredByUserId,
-            TriggeredByUserName = triggeredByUserName
-        };
     }
 
     public async Task EmergencyRestoreAsync(
@@ -592,7 +640,21 @@ public sealed class BackupService : IBackupService
         char[] masterRecoveryKeyHex,
         CancellationToken ct = default)
     {
-        if (!_storeIdentity.ValidateMasterRecoveryKey(masterRecoveryKeyHex))
+        if (masterRecoveryKeyHex == null || masterRecoveryKeyHex.Length != 64)
+        {
+            throw new DomainException("StoreMasterRecoveryKey must be a 64-character hexadecimal string.", "INVALID_MASTER_KEY");
+        }
+
+        var store = await _dbContext.Stores.AsNoTracking().FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        if (store != null && !string.IsNullOrWhiteSpace(store.MasterKeyValidatorHash))
+        {
+            var storeGuid = store.StoreGuid != Guid.Empty ? store.StoreGuid : _storeIdentity.StoreId;
+            if (!_storeIdentity.ValidateMasterRecoveryKeyAgainstVerifier(storeGuid, masterRecoveryKeyHex, store.MasterKeyValidatorHash))
+            {
+                throw new DomainException("Invalid StoreMasterRecoveryKey.", "INVALID_MASTER_KEY");
+            }
+        }
+        else if (!_storeIdentity.ValidateMasterRecoveryKey(masterRecoveryKeyHex))
         {
             throw new DomainException("Invalid StoreMasterRecoveryKey.", "INVALID_MASTER_KEY");
         }
@@ -602,6 +664,7 @@ public sealed class BackupService : IBackupService
             await RestoreBackupAsync(fileName, "EMERGENCY_RECOVERY_CLI", "Offline Administrator", ct).ConfigureAwait(false);
         }
     }
+
 
     public async Task<IReadOnlyList<BackupRecordDto>> GetBackupHistoryAsync(CancellationToken ct = default)
     {
@@ -769,13 +832,20 @@ public sealed class BackupService : IBackupService
         }
     }
 
-    private async Task WriteMarkerAsync(Guid restoreOpId, string state, string snapshotPath, string targetPath, CancellationToken ct)
+    private async Task WriteMarkerAsync(
+        Guid restoreOpId,
+        string state,
+        string snapshotPath,
+        string targetPath,
+        string? identitySnapshotPath,
+        CancellationToken ct)
     {
         var marker = new
         {
             RestoreOperationId = restoreOpId,
             State = state,
             SafetySnapshotPath = snapshotPath,
+            IdentitySafetySnapshotPath = identitySnapshotPath,
             TargetBackupPath = targetPath,
             TimestampUtc = DateTime.UtcNow,
             Mac = string.Empty
@@ -790,6 +860,7 @@ public sealed class BackupService : IBackupService
         var json = JsonSerializer.Serialize(marker, IndentedJson);
         await File.WriteAllTextAsync(_recoveryMarkerPath, json, ct).ConfigureAwait(false);
     }
+
 
     private static BackupRecordDto MapToDto(BackupRecord r)
     {

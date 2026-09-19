@@ -16,6 +16,7 @@ public sealed class Srp6aPairingService : ISrp6aPairingService
 {
     private readonly IPairingTokenRepository _repository;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, BigInteger> _ephemeralBStorage = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte[]> _kPakeStorage = new();
 
     public Srp6aPairingService(IPairingTokenRepository repository)
     {
@@ -172,6 +173,9 @@ public sealed class Srp6aPairingService : ISrp6aPairingService
 
         token.ProvisionTmk(retryAuthHash, encryptedTmkJson, m2B64);
 
+        // Store kPake ephemerally until FinalizePairingAsync
+        _kPakeStorage[pairingOperationId] = (byte[])kPake.Clone();
+
         // Zeroize cryptographic keys from memory
         CryptographicOperations.ZeroMemory(kPake);
         CryptographicOperations.ZeroMemory(kWrap);
@@ -224,7 +228,7 @@ public sealed class Srp6aPairingService : ISrp6aPairingService
     public async Task FinalizePairingAsync(
         Guid pairingOperationId,
         byte[] finalizeProof,
-        byte[] kPake,
+        byte[]? kPake = null,
         CancellationToken ct = default)
     {
         var token = await _repository.GetByIdAsync(pairingOperationId, ct)
@@ -235,13 +239,34 @@ public sealed class Srp6aPairingService : ISrp6aPairingService
         if (token.State != "TMK_PROVISIONED")
             throw new DomainException($"Cannot finalize pairing from state {token.State}.", "INVALID_STATE");
 
-        byte[] m2 = Convert.FromBase64String(token.ServerEvidenceM2!);
-        if (!Srp6aApplicationProfile.VerifyFinalizeProof(kPake, pairingOperationId, m2, finalizeProof))
+        byte[]? keyToUse = kPake;
+        bool mustZeroize = false;
+        if (keyToUse == null)
         {
-            token.IncrementFailedAttempts("INVALID_FINALIZE_PROOF");
-            throw new DomainException("Finalize proof verification failed.", "ERROR_INVALID_FINALIZE_PROOF");
+            if (!_kPakeStorage.TryRemove(pairingOperationId, out keyToUse))
+            {
+                throw new DomainException("Pairing session expired or server restarted.", "ERROR_PAIRING_SESSION_LOST");
+            }
+            mustZeroize = true;
         }
 
-        token.Complete(DateTime.UtcNow);
+        try
+        {
+            byte[] m2 = Convert.FromBase64String(token.ServerEvidenceM2!);
+            if (!Srp6aApplicationProfile.VerifyFinalizeProof(keyToUse, pairingOperationId, m2, finalizeProof))
+            {
+                token.IncrementFailedAttempts("INVALID_FINALIZE_PROOF");
+                throw new DomainException("Finalize proof verification failed.", "ERROR_INVALID_FINALIZE_PROOF");
+            }
+
+            token.Complete(DateTime.UtcNow);
+        }
+        finally
+        {
+            if (mustZeroize && keyToUse != null)
+            {
+                CryptographicOperations.ZeroMemory(keyToUse);
+            }
+        }
     }
 }

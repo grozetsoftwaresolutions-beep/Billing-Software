@@ -25,6 +25,7 @@ using RetailPOS.Server.Authentication;
 using RetailPOS.Server.Configuration;
 using RetailPOS.Server.Endpoints;
 using RetailPOS.Server.Middleware;
+using RetailPOS.Application.Security.Srp6a;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -107,6 +108,8 @@ builder.Services.AddScoped<IPurchaseRepository, EfPurchaseRepository>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
 builder.Services.AddScoped<ICashSessionRepository, EfCashSessionRepository>();
 builder.Services.AddScoped<ITerminalHardwareConfigRepository, TerminalHardwareConfigRepository>();
+builder.Services.AddScoped<IPairingTokenRepository, EfPairingTokenRepository>();
+builder.Services.AddScoped<ISrp6aPairingService, Srp6aPairingService>();
 
 // Phase 11 Backup, Restore & Disaster Recovery services
 builder.Services.AddSingleton<IDatabaseOperationGate, DatabaseOperationGate>();
@@ -305,6 +308,7 @@ app.MapHardwareEndpoints();
 app.MapSupervisorEndpoints();
 app.MapAuditEndpoints();
 app.MapSecuritySettingsEndpoints();
+app.MapSecurityEndpoints();
 
 // Phase 11 Backup, Restore and Recovery endpoints
 app.MapBackupEndpoints();
@@ -323,7 +327,11 @@ using (var scope = app.Services.CreateScope())
     var storeRepo = scope.ServiceProvider.GetRequiredService<IStoreRepository>();
     var store = await storeRepo.GetStoreAsync();
     var storeIdentity = scope.ServiceProvider.GetRequiredService<IStoreIdentityService>();
-    await storeIdentity.InitializeOrLoadAsync(store != null ? Guid.Parse("11111111-1111-1111-1111-111111111111") : Guid.NewGuid(), store?.StoreName ?? "Default Store");
+    Guid initialGuid = store != null && store.StoreGuid != Guid.Empty
+        ? store.StoreGuid
+        : (store != null ? Guid.Parse("11111111-1111-1111-1111-111111111111") : Guid.NewGuid());
+    await storeIdentity.InitializeOrLoadAsync(initialGuid, store?.StoreName ?? "Default Store");
+
 
     
     // Phase 13 Security Settings Store Initialization (Startup Reconciliation States A, B, C, D)
