@@ -56,6 +56,12 @@ public sealed class VirtualPosTerminal : IDisposable
 
         Client.DefaultRequestHeaders.Remove("X-Test-Remote-IP");
         Client.DefaultRequestHeaders.Add("X-Test-Remote-IP", IpAddress.ToString());
+
+        Client.DefaultRequestHeaders.Remove(ProtocolVersionConstants.ClientProtocolVersionHeader);
+        Client.DefaultRequestHeaders.Add(ProtocolVersionConstants.ClientProtocolVersionHeader, ProtocolVersionConstants.CurrentProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        Client.DefaultRequestHeaders.Remove(ProtocolVersionConstants.ClientVersionHeader);
+        Client.DefaultRequestHeaders.Add(ProtocolVersionConstants.ClientVersionHeader, "1.0.0");
     }
 
     public void SetBearerToken(string? token)

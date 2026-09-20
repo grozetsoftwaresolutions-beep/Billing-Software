@@ -44,6 +44,9 @@ public static class RetailPOSPaths
     public static string GetDefaultLogsDirectory() => Path.Combine(GetDefaultServerRoot(), LogsSubdirectory);
     public static string GetDefaultStagingDirectory() => Path.Combine(GetDefaultServerRoot(), StagingSubdirectory);
     public static string GetDefaultDatabasePath() => Path.Combine(GetDefaultDatabaseDirectory(), DefaultDatabaseFileName);
+    public static string GetDefaultMigrationStagingDirectory() => Path.Combine(GetDefaultStagingDirectory(), "Migration");
+    public static string GetDefaultMigrationMarkerPath() => Path.Combine(GetDefaultMigrationStagingDirectory(), "migration_state.json");
+    public static string GetDefaultMigrationJournalPath() => Path.Combine(GetDefaultLogsDirectory(), "migration_audit.journal");
 
     // Client Path Resolvers
     public static string GetDefaultClientRoot() => ResolvePath(DefaultClientDataRoot);
@@ -68,6 +71,7 @@ public static class RetailPOSPaths
         Directory.CreateDirectory(Path.Combine(root, SecuritySubdirectory));
         Directory.CreateDirectory(Path.Combine(root, LogsSubdirectory));
         Directory.CreateDirectory(Path.Combine(root, StagingSubdirectory));
+        Directory.CreateDirectory(Path.Combine(root, StagingSubdirectory, "Migration"));
     }
 
     /// <summary>

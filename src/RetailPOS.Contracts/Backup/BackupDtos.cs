@@ -16,6 +16,8 @@ public class EmergencyRestoreRequestDto
 {
     public string FileName { get; set; } = string.Empty;
     public string StoreMasterRecoveryKey { get; set; } = string.Empty;
+    public bool ConfirmDestructiveRollback { get; set; } = true;
+    public string ConfirmationPhrase { get; set; } = string.Empty;
 }
 
 public class BackupRecordDto

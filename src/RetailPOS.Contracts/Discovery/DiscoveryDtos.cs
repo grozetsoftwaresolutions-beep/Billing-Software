@@ -22,7 +22,9 @@ public sealed record ServerDiscoveryResponseDto(
     string HttpBaseUrl,
     string? HttpsBaseUrl,
     string ServerVersion,
-    DateTimeOffset ServerTimeUtc);
+    DateTimeOffset ServerTimeUtc,
+    int ProtocolVersion = 1,
+    int MinSupportedClientProtocolVersion = 1);
 
 public sealed record ServerChallengeRequestDto(
     string Nonce,

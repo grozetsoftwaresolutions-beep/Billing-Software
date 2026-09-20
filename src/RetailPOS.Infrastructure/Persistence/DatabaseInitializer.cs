@@ -58,6 +58,15 @@ public static class DatabaseInitializer
 
         using var cmd = connection.CreateCommand();
 
+        // If user_version is already 14 or higher, baseline 14 is already established
+        cmd.CommandText = "PRAGMA user_version;";
+        var verObj = await cmd.ExecuteScalarAsync(cancellationToken);
+        int currentVersion = Convert.ToInt32(verObj, CultureInfo.InvariantCulture);
+        if (currentVersion >= 14)
+        {
+            return;
+        }
+
         // 1. Check if stock_balances table exists and if is_low_stock column is present
         cmd.CommandText = "PRAGMA table_info(stock_balances);";
         var hasIsLowStock = false;
@@ -1204,6 +1213,21 @@ END;
         {
             throw new InvalidOperationException($"Database integrity check failed: {integrityResult}");
         }
+
+        // Establish Baseline 14 in schema_migrations and PRAGMA user_version
+        cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at_utc TEXT NOT NULL,
+    execution_time_ms INTEGER NOT NULL,
+    checksum TEXT NOT NULL
+);
+INSERT OR IGNORE INTO schema_migrations (version, name, applied_at_utc, execution_time_ms, checksum)
+VALUES (14, 'Baseline_Phase16.5', datetime('now'), 0, 'VERIFIED_BASELINE');
+PRAGMA user_version = 14;
+";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static decimal ParseQuantityValue(string? raw)

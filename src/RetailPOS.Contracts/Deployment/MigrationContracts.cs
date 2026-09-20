@@ -19,6 +19,12 @@ public sealed class MigrationMarker
     public string OperationId { get; set; } = string.Empty;
     public string PreMigrationBackupPath { get; set; } = string.Empty;
     public string PreMigrationBackupSha256 { get; set; } = string.Empty;
+    public string PreMigrationIdentityBackupPath { get; set; } = string.Empty;
+    public string PreMigrationIdentityBackupSha256 { get; set; } = string.Empty;
+    public string PreUpgradeVerifierHash { get; set; } = string.Empty;
+    public int TargetSchemaVersion { get; set; }
+    public int CurrentStep { get; set; }
+    public string Reason { get; set; } = string.Empty;
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }

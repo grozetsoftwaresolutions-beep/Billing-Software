@@ -23,9 +23,29 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         _dbPath = Path.Combine(_dataDir, $"retailpos_test_{id}.db");
     }
 
+    private static string FindRepoRoot()
+    {
+        var current = AppContext.BaseDirectory;
+        while (!string.IsNullOrEmpty(current))
+        {
+            if (File.Exists(Path.Combine(current, "RetailPOS.sln")))
+            {
+                return current;
+            }
+            current = Directory.GetParent(current)?.FullName;
+        }
+        return Directory.GetCurrentDirectory();
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        var repoRoot = FindRepoRoot();
+        var serverContentRoot = Path.Combine(repoRoot, "src", "RetailPOS.Server");
+        if (Directory.Exists(serverContentRoot))
+        {
+            builder.UseContentRoot(serverContentRoot);
+        }
 
         builder.ConfigureAppConfiguration((_, config) =>
         {
@@ -84,6 +104,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 next(app);
             };
         }
+    }
+
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.DefaultRequestHeaders.Add(RetailPOS.Contracts.Common.ProtocolVersionConstants.ClientProtocolVersionHeader, RetailPOS.Contracts.Common.ProtocolVersionConstants.CurrentProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        client.DefaultRequestHeaders.Add(RetailPOS.Contracts.Common.ProtocolVersionConstants.ClientVersionHeader, "1.0.0");
     }
 
     protected override void Dispose(bool disposing)

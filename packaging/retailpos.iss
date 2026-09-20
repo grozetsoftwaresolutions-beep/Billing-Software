@@ -137,6 +137,65 @@ begin
   end;
 end;
 
+function StopServerServiceWithBoundedPolling(): String;
+var
+  ResultCode: Integer;
+  LoopCount: Integer;
+  QueryOutput: AnsiString;
+  TempFilePath: String;
+begin
+  Result := '';
+  TempFilePath := ExpandConstant('{tmp}\scm_query.txt');
+
+  // Check if service exists
+  if Exec('cmd.exe', '/C sc.exe query GrozetPOSServer > "' + TempFilePath + '" 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if LoadStringFromFile(TempFilePath, QueryOutput) then
+    begin
+      // 1060 indicates ERROR_SERVICE_DOES_NOT_EXIST
+      if Pos('1060', QueryOutput) > 0 then
+      begin
+        DeleteFile(TempFilePath);
+        Exit;
+      end;
+      // If already stopped, proceed
+      if Pos('STOPPED', QueryOutput) > 0 then
+      begin
+        DeleteFile(TempFilePath);
+        Exit;
+      end;
+    end;
+  end;
+
+  // Signal service stop
+  Exec('sc.exe', 'stop GrozetPOSServer', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // Bounded polling loop: up to 60 iterations with 500ms sleep = 30s timeout
+  for LoopCount := 1 to 60 do
+  begin
+    Sleep(500);
+    if Exec('cmd.exe', '/C sc.exe query GrozetPOSServer > "' + TempFilePath + '" 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    begin
+      if LoadStringFromFile(TempFilePath, QueryOutput) then
+      begin
+        if Pos('STOPPED', QueryOutput) > 0 then
+        begin
+          DeleteFile(TempFilePath);
+          Exit;
+        end;
+      end;
+    end;
+  end;
+
+  DeleteFile(TempFilePath);
+  Result := 'Grozet POS Server service failed to stop within 30 seconds. Upgrade aborted safely.';
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := StopServerServiceWithBoundedPolling();
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then

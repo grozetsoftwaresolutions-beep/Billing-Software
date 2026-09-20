@@ -97,6 +97,59 @@ public sealed class TerminalValidationMiddleware
         var requiresTerminal = endpoint?.Metadata.GetMetadata<RequireTerminalAttribute>() != null;
         var hasHeader = context.Request.Headers.TryGetValue(HeaderName, out var terminalVal);
 
+        // 3. Multi-counter protocol version validation
+        if (requiresTerminal || hasHeader)
+        {
+            if (!context.Request.Headers.TryGetValue(ProtocolVersionConstants.ClientProtocolVersionHeader, out var protoVal) ||
+                string.IsNullOrWhiteSpace(protoVal.ToString()))
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                context.Response.ContentType = "application/json";
+                var envelope = ApiResponse.Fail<object>(
+                    $"Missing required protocol header: {ProtocolVersionConstants.ClientProtocolVersionHeader}",
+                    "PROTOCOL_HEADER_MISSING",
+                    GetCorrelationId(context));
+                await JsonSerializer.SerializeAsync(context.Response.Body, envelope, JsonOptions);
+                return;
+            }
+
+            if (!int.TryParse(protoVal.ToString(), out var clientProtoVersion))
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                context.Response.ContentType = "application/json";
+                var envelope = ApiResponse.Fail<object>(
+                    $"Invalid protocol version format: {protoVal}",
+                    "INVALID_PROTOCOL_VERSION",
+                    GetCorrelationId(context));
+                await JsonSerializer.SerializeAsync(context.Response.Body, envelope, JsonOptions);
+                return;
+            }
+
+            if (clientProtoVersion < ProtocolVersionConstants.MinSupportedClientProtocolVersion)
+            {
+                context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
+                context.Response.ContentType = "application/json";
+                var envelope = ApiResponse.Fail<object>(
+                    $"Client protocol version {clientProtoVersion} is deprecated. Minimum required protocol version is {ProtocolVersionConstants.MinSupportedClientProtocolVersion}.",
+                    "CLIENT_PROTOCOL_DEPRECATED",
+                    GetCorrelationId(context));
+                await JsonSerializer.SerializeAsync(context.Response.Body, envelope, JsonOptions);
+                return;
+            }
+
+            if (clientProtoVersion > ProtocolVersionConstants.CurrentProtocolVersion)
+            {
+                context.Response.StatusCode = StatusCodes.Status409Conflict;
+                context.Response.ContentType = "application/json";
+                var envelope = ApiResponse.Fail<object>(
+                    $"Client protocol version {clientProtoVersion} is newer than server protocol version {ProtocolVersionConstants.CurrentProtocolVersion}. Please upgrade the server.",
+                    "CLIENT_PROTOCOL_FUTURE",
+                    GetCorrelationId(context));
+                await JsonSerializer.SerializeAsync(context.Response.Body, envelope, JsonOptions);
+                return;
+            }
+        }
+
         Guid? terminalId = null;
         if (hasHeader && Guid.TryParse(terminalVal.ToString(), out var parsedId))
         {

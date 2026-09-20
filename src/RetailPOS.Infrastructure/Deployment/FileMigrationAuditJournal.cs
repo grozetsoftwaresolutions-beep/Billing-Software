@@ -60,7 +60,12 @@ public sealed class FileMigrationAuditJournal : IMigrationAuditJournal, IDisposa
                 Directory.CreateDirectory(dir);
             }
 
-            await File.AppendAllTextAsync(_journalFilePath, line, Encoding.UTF8);
+            byte[] bytes = Encoding.UTF8.GetBytes(line);
+            await using (var fs = new FileStream(_journalFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, 4096, useAsync: true))
+            {
+                await fs.WriteAsync(bytes.AsMemory(0, bytes.Length)).ConfigureAwait(false);
+                await fs.FlushAsync().ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -118,8 +123,10 @@ public sealed class FileMigrationAuditJournal : IMigrationAuditJournal, IDisposa
         var list = new List<MigrationJournalEntry>();
         if (!File.Exists(_journalFilePath)) return list;
 
-        string[] lines = await File.ReadAllLinesAsync(_journalFilePath, Encoding.UTF8);
-        foreach (var line in lines)
+        using var fs = new FileStream(_journalFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(fs, Encoding.UTF8);
+        string? line;
+        while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             var entry = JsonSerializer.Deserialize<MigrationJournalEntry>(line);

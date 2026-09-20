@@ -264,4 +264,33 @@ public sealed class InnoSetupInstallerTests
         var relativeFromPackaging = Path.GetFullPath(Path.Combine(packagingDir, @"..\scripts\deployment\Deploy-WindowsService.ps1"));
         Assert.Equal(deployScript, relativeFromPackaging);
     }
+
+    [Theory]
+    [InlineData("packaging/retailpos-server.iss")]
+    [InlineData("packaging/retailpos.iss")]
+    public void InstallerScript_ContainsBoundedScmPolling(string scriptRelativePath)
+    {
+        var scriptPath = Path.Combine(RepoRoot, scriptRelativePath);
+        Assert.True(File.Exists(scriptPath), $"Script file not found: {scriptPath}");
+
+        var scriptContent = File.ReadAllText(scriptPath);
+
+        // Must implement bounded SCM polling function
+        Assert.Contains("function StopServerServiceWithBoundedPolling(): String;", scriptContent);
+
+        // Must hook into PrepareToInstall
+        Assert.Contains("function PrepareToInstall(var NeedsRestart: Boolean): String;", scriptContent);
+        Assert.Contains("Result := StopServerServiceWithBoundedPolling();", scriptContent);
+
+        // Must poll for STOPPED status
+        Assert.Contains("STOPPED", scriptContent);
+
+        // Must NOT use arbitrary sleep without polling loop (a single sleep after stop)
+        // Ensure bounded loop with max iterations (e.g. 60 iterations with 500ms delay = 30s)
+        Assert.Contains("for LoopCount := 1 to 60 do", scriptContent);
+
+        // Must strictly preserve ProgramData in UninstallDelete
+        Assert.DoesNotContain("Type: filesandordirs; Name: \"{commonappdata}", scriptContent);
+        Assert.DoesNotContain("Type: dirifempty; Name: \"{commonappdata}", scriptContent);
+    }
 }

@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Terminals;
 using RetailPOS.Domain.Enums;
 
@@ -21,6 +22,7 @@ public sealed class ServerConnectionMonitor : IAsyncDisposable
 
     public event Action<CounterConnectivityStatus>? StatusChanged;
     public event Action<string>? IdentityMismatchDetected;
+    public event Action<string>? ProtocolVersionMismatchDetected;
 
     public ServerConnectionMonitor(
         HttpClient httpClient,
@@ -80,13 +82,31 @@ public sealed class ServerConnectionMonitor : IAsyncDisposable
                 DateTimeOffset.UtcNow);
 
             var url = $"{_serverBaseUrl}/api/v1/terminals/heartbeat";
-            var response = await _httpClient.PostAsJsonAsync(url, dto, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = JsonContent.Create(dto)
+            };
+            request.Headers.TryAddWithoutValidation(ProtocolVersionConstants.ClientProtocolVersionHeader, ProtocolVersionConstants.CurrentProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            request.Headers.TryAddWithoutValidation(ProtocolVersionConstants.ClientVersionHeader, "1.0.0");
+            var response = await _httpClient.SendAsync(request, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
                 _consecutiveFailures = 0;
                 LastSuccessfulHeartbeatUtc = DateTime.UtcNow;
                 UpdateStatus(CounterConnectivityStatus.Online);
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.UpgradeRequired)
+            {
+                _consecutiveFailures++;
+                ProtocolVersionMismatchDetected?.Invoke("Client protocol is deprecated. Upgrade required.");
+                UpdateStatus(CounterConnectivityStatus.Disconnected);
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                _consecutiveFailures++;
+                ProtocolVersionMismatchDetected?.Invoke("Client protocol is newer than server. Server upgrade required.");
+                UpdateStatus(CounterConnectivityStatus.Disconnected);
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {

@@ -43,26 +43,24 @@ public static class DiscoveryEndpoints
             CancellationToken ct) =>
         {
             var identity = await serverIdentityService.GetServerIdentityAsync(ct);
-            if (identity is null)
-            {
-                return Results.NotFound(ApiResponse.Fail<object>("Server identity not provisioned.", "SERVER_IDENTITY_NOT_FOUND"));
-            }
-
             var settingsResponse = await storeService.GetSettingsAsync(ct);
             var storeName = settingsResponse.Data?.StoreName ?? "Grozet Retail";
             var host = context.Request.Host.Value;
             var scheme = context.Request.Scheme;
 
+            var version = typeof(DiscoveryEndpoints).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
             var dto = new ServerDiscoveryResponseDto(
-                identity.ServerId,
-                identity.StoreId,
+                identity?.ServerId ?? "SRV-UNPROVISIONED",
+                identity?.StoreId ?? Guid.Empty,
                 storeName,
-                identity.ServerFingerprint,
-                identity.PublicKeySpki,
+                identity?.ServerFingerprint ?? "UNPROVISIONED",
+                identity?.PublicKeySpki ?? string.Empty,
                 $"{scheme}://{host}",
                 scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? $"{scheme}://{host}" : null,
-                "1.0.0",
-                DateTimeOffset.UtcNow);
+                version,
+                DateTimeOffset.UtcNow,
+                ProtocolVersion: ProtocolVersionConstants.CurrentProtocolVersion,
+                MinSupportedClientProtocolVersion: ProtocolVersionConstants.MinSupportedClientProtocolVersion);
 
             return Results.Ok(ApiResponse.Ok(dto));
         })

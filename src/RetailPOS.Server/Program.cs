@@ -26,6 +26,8 @@ using RetailPOS.Server.Configuration;
 using RetailPOS.Server.Endpoints;
 using RetailPOS.Server.Middleware;
 using RetailPOS.Application.Security.Srp6a;
+using RetailPOS.Application.Deployment;
+using RetailPOS.Infrastructure.Deployment;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -259,6 +261,39 @@ builder.Services.AddScoped<IDatabaseBackupService, SqliteDatabaseBackupService>(
 builder.Services.AddScoped<AtomicStockManager>();
 builder.Services.AddScoped<InvoiceSequenceGenerator>();
 
+// Phase 16.6 Safe Database Migration Runner & Schema Registry
+builder.Services.AddSingleton<SchemaMigrationRegistry>();
+builder.Services.AddSingleton<IMigrationAuditJournal>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var logsDir = options?.ResolveLogsDirectory() ?? RetailPOSPaths.GetDefaultLogsDirectory();
+    var journalPath = Path.Combine(logsDir, "migration_audit.journal");
+    byte[] key = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("RetailPOS_Migration_Audit_Journal_Key"));
+    return new FileMigrationAuditJournal(journalPath, key);
+});
+builder.Services.AddScoped<ISafeMigrationRunner>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var dataDir = options?.ResolveDataDirectory() ?? RetailPOSPaths.GetDefaultDatabaseDirectory();
+    var baseStagingDir = options?.ResolveStagingDirectory() ?? RetailPOSPaths.GetDefaultStagingDirectory();
+    var migrationStagingDir = Path.Combine(baseStagingDir, "Migration");
+    var markerPath = Path.Combine(migrationStagingDir, "migration_state.json");
+    var journal = sp.GetRequiredService<IMigrationAuditJournal>();
+    var manifestService = sp.GetRequiredService<IBackupManifestService>();
+    var storeIdentity = sp.GetService<IStoreIdentityService>();
+    var maintenance = sp.GetService<IDatabaseMaintenanceCoordinator>();
+    var registry = sp.GetService<SchemaMigrationRegistry>();
+    return new SafeMigrationRunner(
+        dataDirectory: dataDir,
+        stagingDirectory: migrationStagingDir,
+        markerFilePath: markerPath,
+        journal: journal,
+        backupManifestService: manifestService,
+        storeIdentityService: storeIdentity,
+        maintenanceCoordinator: maintenance,
+        schemaRegistry: registry);
+});
+
 var app = builder.Build();
 
 // Pipeline middleware order: Correlation ID -> Global Exceptions -> Terminal Validation
@@ -317,8 +352,18 @@ app.MapAdminRecoveryEndpoints();
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())
 {
+    // Phase 16.6 Migration Crash Recovery: Recover from interrupted migration before accessing DB
+    var migrationRunner = scope.ServiceProvider.GetRequiredService<ISafeMigrationRunner>();
+    await migrationRunner.PerformStartupRecoveryIfNeededAsync();
+
     var db = scope.ServiceProvider.GetRequiredService<RetailDbContext>();
     await DatabaseInitializer.InitializeDatabaseAsync(db);
+
+    // Phase 16.6 Single Migration Authority: Run discrete schema migrations
+    if (migrationRunner is SafeMigrationRunner safeRunner)
+    {
+        await safeRunner.RunMigrationLifecycleAsync(db);
+    }
 
     // Phase 11 Filesystem Crash Reconciliation & Store Identity initialization
     var reconciler = scope.ServiceProvider.GetRequiredService<IFilesystemReconciliationEngine>();

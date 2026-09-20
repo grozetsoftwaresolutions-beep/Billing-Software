@@ -32,7 +32,13 @@ public sealed class TerminalEnrollmentClient
         ArgumentNullException.ThrowIfNull(request);
 
         var url = $"{serverBaseUrl.TrimEnd('/')}/api/v1/terminals/enroll";
-        var response = await _httpClient.PostAsJsonAsync(url, request, cancellationToken);
+        using var reqMsg = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(request)
+        };
+        reqMsg.Headers.TryAddWithoutValidation(ProtocolVersionConstants.ClientProtocolVersionHeader, ProtocolVersionConstants.CurrentProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        reqMsg.Headers.TryAddWithoutValidation(ProtocolVersionConstants.ClientVersionHeader, "1.0.0");
+        var response = await _httpClient.SendAsync(reqMsg, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<TerminalEnrollResponseDto>(cancellationToken: cancellationToken);
@@ -51,7 +57,13 @@ public sealed class TerminalEnrollmentClient
         ArgumentNullException.ThrowIfNull(request);
 
         var url = $"{serverBaseUrl.TrimEnd('/')}/api/v1/terminals/repair";
-        var response = await _httpClient.PostAsJsonAsync(url, request, cancellationToken);
+        using var reqMsg = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(request)
+        };
+        reqMsg.Headers.TryAddWithoutValidation(ProtocolVersionConstants.ClientProtocolVersionHeader, ProtocolVersionConstants.CurrentProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        reqMsg.Headers.TryAddWithoutValidation(ProtocolVersionConstants.ClientVersionHeader, "1.0.0");
+        var response = await _httpClient.SendAsync(reqMsg, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<TerminalEnrollResponseDto>(cancellationToken: cancellationToken);

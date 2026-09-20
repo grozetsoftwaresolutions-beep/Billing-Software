@@ -280,6 +280,13 @@ public class StoreServerFixture : WebApplicationFactory<Program>, IAsyncDisposab
         }
     }
 
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.DefaultRequestHeaders.Add(ProtocolVersionConstants.ClientProtocolVersionHeader, ProtocolVersionConstants.CurrentProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        client.DefaultRequestHeaders.Add(ProtocolVersionConstants.ClientVersionHeader, "1.0.0");
+    }
+
     public override async ValueTask DisposeAsync()
     {
         await base.DisposeAsync();

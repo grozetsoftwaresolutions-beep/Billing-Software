@@ -29,6 +29,11 @@ public static class AdminRecoveryEndpoints
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
+            if (!request.ConfirmDestructiveRollback)
+            {
+                return Results.BadRequest(ApiResponse.Fail<object>("Explicit confirmation of destructive rollback is required.", "CONFIRMATION_REQUIRED"));
+            }
+
             if (string.IsNullOrWhiteSpace(request.StoreMasterRecoveryKey) || request.StoreMasterRecoveryKey.Length != 64)
             {
                 return Results.BadRequest(ApiResponse.Fail<object>("StoreMasterRecoveryKey must be a 64-character hexadecimal key.", "INVALID_MASTER_KEY"));
