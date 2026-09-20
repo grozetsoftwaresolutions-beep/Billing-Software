@@ -147,10 +147,15 @@ public class Phase11ServerIntegrationTests : IDisposable
     [Fact]
     public async Task EmergencyRecovery_Restore_WithInvalidKey_Returns403()
     {
+        var token = await SetupOwnerAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
         var response = await _client.PostAsJsonAsync("/api/v1/admin/recovery/restore", new EmergencyRestoreRequestDto
         {
             FileName = "any_backup.db",
-            StoreMasterRecoveryKey = "0000000000000000000000000000000000000000000000000000000000000000"
+            StoreMasterRecoveryKey = "0000000000000000000000000000000000000000000000000000000000000000",
+            ConfirmDestructiveRollback = true,
+            ConfirmationPhrase = EmergencyRestoreRequestDto.RequiredConfirmationPhrase
         });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);

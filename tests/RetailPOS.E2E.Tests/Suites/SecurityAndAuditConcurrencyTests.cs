@@ -617,11 +617,14 @@ public sealed class SecurityAndAuditConcurrencyTests
         // 6. Non-loopback IP attempts to invoke loopback-only recovery restore -> 403 Forbidden
         using var remoteRecoveryClient = fixture.CreateClient();
         remoteRecoveryClient.DefaultRequestHeaders.Add("X-Forwarded-For", "192.168.1.200");
+        remoteRecoveryClient.DefaultRequestHeaders.Add("X-Test-Remote-IP", "192.168.1.200");
         var recoveryRes = await remoteRecoveryClient.PostAsJsonAsync("/api/v1/admin/recovery/restore",
             new EmergencyRestoreRequestDto
             {
                 FileName = "backup.bak",
-                StoreMasterRecoveryKey = new string('A', 64)
+                StoreMasterRecoveryKey = new string('A', 64),
+                ConfirmDestructiveRollback = true,
+                ConfirmationPhrase = EmergencyRestoreRequestDto.RequiredConfirmationPhrase
             });
         Assert.Equal(HttpStatusCode.Forbidden, recoveryRes.StatusCode);
 

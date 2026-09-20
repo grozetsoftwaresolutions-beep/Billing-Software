@@ -14,6 +14,8 @@ public class RestoreBackupRequestDto
 
 public class EmergencyRestoreRequestDto
 {
+    public const string RequiredConfirmationPhrase = "CONFIRM_DESTRUCTIVE_ROLLBACK";
+
     public string FileName { get; set; } = string.Empty;
     public string StoreMasterRecoveryKey { get; set; } = string.Empty;
     public bool ConfirmDestructiveRollback { get; set; } = true;

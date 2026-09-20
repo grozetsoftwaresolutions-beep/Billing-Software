@@ -364,4 +364,123 @@ PRAGMA user_version = 0;
         // Verify marker cleaned up
         Assert.False(File.Exists(_markerPath));
     }
+
+    [Fact]
+    public async Task CrashDuringVerification_StateF_TriggersAutomaticDualRollback()
+    {
+        string dbPath = Path.Combine(_dataDir, "grozet_pos.db");
+        await using (var db = CreateDbContext(dbPath))
+        {
+            await DatabaseInitializer.InitializeDatabaseAsync(db);
+        }
+        SqliteConnection.ClearAllPools();
+
+        // 1. Initialize store identity
+        var storeGuid = Guid.NewGuid();
+        await _identityService.InitializeOrLoadAsync(storeGuid, "Crash Verification Store");
+        string identityPath = Path.Combine(_securityDir, "store_identity.dat");
+        string originalIdentityContent = await File.ReadAllTextAsync(identityPath);
+        byte[] originalSigningKey = _identityService.GetStoreSigningKey();
+
+        string opId = Guid.NewGuid().ToString("N");
+        string opStaging = Path.Combine(_stagingDir, opId);
+        Directory.CreateDirectory(opStaging);
+
+        // 2. Prepare pre-migration backup of DB and identity with valid companion manifest
+        string dbBackup = Path.Combine(opStaging, "pre_migration.db");
+        File.Copy(dbPath, dbBackup);
+        string idBackup = Path.Combine(opStaging, "pre_migration_identity.dat");
+        File.Copy(identityPath, idBackup);
+
+        string dbSha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(dbBackup)));
+        string idSha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(idBackup)));
+
+        var manifest = new BackupManifestDto
+        {
+            ManifestVersion = "1.0",
+            BackupOperationId = Guid.Parse(opId[..32]),
+            StoreId = storeGuid,
+            StoreName = "Crash Verification Store",
+            FileName = Path.GetFileName(dbBackup),
+            DatabaseSha256 = dbSha,
+            SizeBytes = new FileInfo(dbBackup).Length,
+            Type = "PreMigration",
+            CreatedAtUtc = DateTime.UtcNow,
+            AppVersion = "1.0.0",
+            SchemaVersion = 14
+        };
+        var canonical = _backupManifestService.CreateCanonicalString(manifest);
+        manifest.Signature = _backupManifestService.ComputeSignature(canonical, originalSigningKey);
+        string manifestPath = $"{dbBackup}.manifest";
+        await _backupManifestService.SaveManifestAsync(manifestPath, manifest);
+
+        // 3. Create marker in STATE_F_VERIFYING
+        var marker = new MigrationMarker
+        {
+            State = "STATE_F_VERIFYING",
+            OperationId = opId,
+            PreMigrationBackupPath = dbBackup,
+            PreMigrationBackupSha256 = dbSha,
+            PreMigrationIdentityBackupPath = idBackup,
+            PreMigrationIdentityBackupSha256 = idSha,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+        await File.WriteAllTextAsync(_markerPath, JsonSerializer.Serialize(marker));
+
+        // 4. Simulate crash during verification: corrupt in-flight DB and identity, create dirty WAL/SHM
+        await File.WriteAllTextAsync(dbPath, "CORRUPTED_DURING_VERIFICATION");
+        await File.WriteAllTextAsync(identityPath, "CORRUPTED_IDENTITY_DURING_VERIFICATION");
+        string walPath = dbPath + "-wal";
+        string shmPath = dbPath + "-shm";
+        await File.WriteAllTextAsync(walPath, "DIRTY_WAL_DATA");
+        await File.WriteAllTextAsync(shmPath, "DIRTY_SHM_DATA");
+
+        var runner = new SafeMigrationRunner(
+            _dataDir, _stagingDir, _markerPath, _journal, _backupManifestService,
+            storeIdentityService: _identityService);
+
+        // 5. Simulate server restart: invoke startup recovery
+        var rollbackResult = await runner.PerformStartupRecoveryIfNeededAsync();
+
+        // 6. Assert deterministic recovery success
+        Assert.True(rollbackResult.IsSuccess, $"Rollback failed: {rollbackResult.ErrorMessage}");
+        Assert.True(rollbackResult.RollbackPerformed, "Rollback must be performed for STATE_F_VERIFYING marker.");
+        Assert.Equal(0, rollbackResult.ExitCode);
+
+        // 7. Verify stale WAL and SHM files were quarantined / detached
+        Assert.False(File.Exists(walPath), "Stale WAL file must not be attached.");
+        Assert.False(File.Exists(shmPath), "Stale SHM file must not be attached.");
+
+        // 8. Verify database integrity and foreign keys
+        await using (var dbRecovered = CreateDbContext(dbPath))
+        {
+            var conn = dbRecovered.Database.GetDbConnection();
+            await conn.OpenAsync();
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA integrity_check;";
+                var integrity = (string?)await cmd.ExecuteScalarAsync();
+                Assert.Equal("ok", integrity);
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA foreign_key_check;";
+                using var reader = await cmd.ExecuteReaderAsync();
+                Assert.False(await reader.ReadAsync(), "Foreign key check must return zero violations.");
+            }
+
+            int ver = await SafeMigrationRunner.GetCurrentSchemaVersionAsync(dbRecovered);
+            Assert.True(ver >= 14, $"Schema version should be baseline or higher, found {ver}");
+        }
+
+        // 9. Verify pre-migration identity pair was restored bit-for-bit
+        string restoredIdentityContent = await File.ReadAllTextAsync(identityPath);
+        Assert.Equal(originalIdentityContent, restoredIdentityContent);
+
+        // 10. Verify marker was cleaned up
+        Assert.False(File.Exists(_markerPath), "Migration marker must be removed upon completed rollback.");
+    }
 }

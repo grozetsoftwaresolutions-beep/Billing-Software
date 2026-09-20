@@ -123,15 +123,25 @@ public sealed class ServerIdentityProvisioningLock
                 var security = new MutexSecurity();
                 var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
                 var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                var worldSid = new SecurityIdentifier(WellKnownSidType.WorldSid, null);
 
                 security.AddAccessRule(new MutexAccessRule(systemSid, MutexRights.FullControl, AccessControlType.Allow));
                 security.AddAccessRule(new MutexAccessRule(adminSid, MutexRights.FullControl, AccessControlType.Allow));
+                security.AddAccessRule(new MutexAccessRule(worldSid, MutexRights.FullControl, AccessControlType.Allow));
 
                 return MutexAcl.Create(initiallyOwned: false, mutexName, out _, security);
             }
             catch
             {
-                return new Mutex(initiallyOwned: false, mutexName);
+                try
+                {
+                    return new Mutex(initiallyOwned: false, mutexName);
+                }
+                catch (UnauthorizedAccessException) when (mutexName.StartsWith("Global\\", StringComparison.OrdinalIgnoreCase))
+                {
+                    var localName = "Local\\" + mutexName["Global\\".Length..];
+                    return new Mutex(initiallyOwned: false, localName);
+                }
             }
         }
 

@@ -7,6 +7,7 @@ using RetailPOS.Contracts.Backup;
 using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Terminals;
 using RetailPOS.Domain.Common;
+using RetailPOS.Domain.Enums;
 using RetailPOS.Server.Middleware;
 
 namespace RetailPOS.Server.Endpoints;
@@ -34,6 +35,12 @@ public static class AdminRecoveryEndpoints
                 return Results.BadRequest(ApiResponse.Fail<object>("Explicit confirmation of destructive rollback is required.", "CONFIRMATION_REQUIRED"));
             }
 
+            if (string.IsNullOrWhiteSpace(request.ConfirmationPhrase) ||
+                !string.Equals(request.ConfirmationPhrase.Trim(), EmergencyRestoreRequestDto.RequiredConfirmationPhrase, StringComparison.Ordinal))
+            {
+                return Results.BadRequest(ApiResponse.Fail<object>($"Exact confirmation phrase '{EmergencyRestoreRequestDto.RequiredConfirmationPhrase}' is required.", "CONFIRMATION_PHRASE_INVALID"));
+            }
+
             if (string.IsNullOrWhiteSpace(request.StoreMasterRecoveryKey) || request.StoreMasterRecoveryKey.Length != 64)
             {
                 return Results.BadRequest(ApiResponse.Fail<object>("StoreMasterRecoveryKey must be a 64-character hexadecimal key.", "INVALID_MASTER_KEY"));
@@ -53,7 +60,8 @@ public static class AdminRecoveryEndpoints
             {
                 return Results.BadRequest(ApiResponse.Fail<object>(ex.Message, ex.ErrorCode));
             }
-        });
+        })
+        .RequireRole(RoleType.Owner);
 
         group.MapPost("/provision-replacement-identity", async (
             ProvisionReplacementIdentityRequestDto request,
