@@ -1,5 +1,9 @@
 # Windows Service Hosting, Service Account & Firewall Deployment
 
+> [!NOTE]
+> **Part of GROZET RetailPOS Documentation Suite**:
+> [Master Documentation Index](../DOCUMENTATION_INDEX.md) | [Installation & Network Guide](INSTALLATION_AND_NETWORK_SETUP_GUIDE.md) | [Support Diagnostics Manual](../operations/SUPPORT_DIAGNOSTICS_AND_TROUBLESHOOTING_MANUAL.md)
+
 ## 1. Hosting Architecture
 
 `RetailPOS.Server` is engineered as a standalone, enterprise Windows Service built on ASP.NET Core and `Microsoft.Extensions.Hosting.WindowsServices` (`builder.Host.UseWindowsService()`).

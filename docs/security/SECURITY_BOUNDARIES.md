@@ -1,4 +1,8 @@
-﻿# Security Boundaries & Network Model
+# Security Boundaries & Network Model
+
+> [!NOTE]
+> **Part of GROZET RetailPOS Documentation Suite**:
+> [Master Documentation Index](../DOCUMENTATION_INDEX.md) | [Security & Access Control Guide](SECURITY_AND_ACCESS_CONTROL_GUIDE.md) | [System Architecture & Offline Model](../architecture/SYSTEM_ARCHITECTURE_AND_OFFLINE_MODEL.md)
 
 ## 1. Environment Profiles: Development vs. Production
 
