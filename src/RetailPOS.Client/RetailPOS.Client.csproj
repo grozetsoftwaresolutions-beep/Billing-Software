@@ -1,15 +1,44 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>RetailPOS.Client</RootNamespace>
-    <OutputType>WinExe</OutputType>
+    <TargetFrameworks>net10.0-windows10.0.19041.0;net10.0</TargetFrameworks>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <Platforms>x64;AnyCPU</Platforms>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <Nullable>enable</Nullable>
+    <OutputType Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">WinExe</OutputType>
+    <OutputType Condition="'$(TargetFramework)' != 'net10.0-windows10.0.19041.0'">Library</OutputType>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\RetailPOS.Contracts\RetailPOS.Contracts.csproj" />
     <ProjectReference Include="..\RetailPOS.Domain\RetailPOS.Domain.csproj" />
     <ProjectReference Include="..\RetailPOS.Application\RetailPOS.Application.csproj" />
     <ProjectReference Include="..\RetailPOS.Infrastructure\RetailPOS.Infrastructure.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-windows10.0.19041.0'">
+    <Compile Remove="App.xaml.cs" />
+    <Compile Remove="MainWindow.xaml.cs" />
+    <None Remove="App.xaml" />
+    <None Remove="MainWindow.xaml" />
   </ItemGroup>
 </Project>

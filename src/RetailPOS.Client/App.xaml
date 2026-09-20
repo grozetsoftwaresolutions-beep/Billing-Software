@@ -1,0 +1,19 @@
+<Application
+    x:Class="RetailPOS.Client.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <SolidColorBrush x:Key="GrozetNavyBrush" Color="#0B192C" />
+            <SolidColorBrush x:Key="GrozetPrimaryBrush" Color="#1E3E62" />
+            <SolidColorBrush x:Key="GrozetAccentBrush" Color="#F15A24" />
+            <SolidColorBrush x:Key="GrozetSurfaceBrush" Color="#F8FAFC" />
+            <SolidColorBrush x:Key="GrozetTextPrimaryBrush" Color="#0F172A" />
+            <SolidColorBrush x:Key="GrozetTextSecondaryBrush" Color="#64748B" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
