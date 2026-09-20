@@ -1,0 +1,199 @@
+<Page
+    x:Class="RetailPOS.Client.Views.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d"
+    Background="#F8FAFC">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="32">
+        <StackPanel MaxWidth="1100" Spacing="24" HorizontalAlignment="Stretch">
+
+            <!-- Welcome Hero Header -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="28, 24">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                            <Border Width="36" Height="36" Background="#EFF6FF" CornerRadius="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE80F;" FontSize="18" Foreground="#1E3E62" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="{x:Bind ViewModel.WelcomeHeading, Mode=OneWay}" FontSize="22" FontWeight="Bold" Foreground="#0F172A" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.WelcomeSubheading, Mode=OneWay}" FontSize="13" Foreground="#64748B" />
+                    </StackPanel>
+
+                    <Border Grid.Column="1" Background="#ECFDF5" BorderBrush="#A7F3D0" BorderThickness="1" CornerRadius="20" Padding="14, 6" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" Fill="#10B981" />
+                            <TextBlock Text="PHASE 17.2 FOUNDATION ACTIVE" FontSize="11" FontWeight="Bold" Foreground="#065F46" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Quick Module Navigation Cards Section -->
+            <StackPanel Spacing="12">
+                <TextBlock Text="APPLICATION MODULES" FontSize="12" FontWeight="Bold" Foreground="#64748B" CharacterSpacing="50" />
+                <Grid ColumnSpacing="16" RowSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- POS & Billing Card -->
+                    <Border Grid.Row="0" Grid.Column="0" Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="20">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
+                                <Border Width="36" Height="36" Background="#F0FDF4" CornerRadius="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE7BF;" FontSize="18" Foreground="#15803D" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="POS &amp; Billing" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+                                    <TextBlock Text="Checkout &amp; Invoicing" FontSize="11" Foreground="#64748B" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="Counter checkout, barcode scanner wedge listener, cart calculation, payment processing, and thermal receipt printing." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
+                            <Button Grid.Row="2" Content="Open POS Module" Click="OnNavigateToPosClicked" HorizontalAlignment="Left" Style="{ThemeResource AccentButtonStyle}" Background="#1E3E62" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Products & Inventory Card -->
+                    <Border Grid.Row="0" Grid.Column="1" Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="20">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
+                                <Border Width="36" Height="36" Background="#EFF6FF" CornerRadius="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE719;" FontSize="18" Foreground="#2563EB" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Products &amp; Inventory" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+                                    <TextBlock Text="Catalog &amp; Stock Levels" FontSize="11" Foreground="#64748B" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="Product catalog lookup, barcode definitions, pricing tiers, stock level verification, and supplier integration via server API." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
+                            <Button Grid.Row="2" Content="Open Products Module" Click="OnNavigateToProductsClicked" HorizontalAlignment="Left" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Reports & Analytics Card -->
+                    <Border Grid.Row="1" Grid.Column="0" Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="20">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
+                                <Border Width="36" Height="36" Background="#FEF3C7" CornerRadius="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE9F9;" FontSize="18" Foreground="#B45309" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Reports &amp; Analytics" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+                                    <TextBlock Text="Financial &amp; Shift Audits" FontSize="11" Foreground="#64748B" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="Daily sales metrics, shift reconciliation, tax reporting, audit exports, and cashier performance breakdown." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
+                            <Button Grid.Row="2" Content="Open Reports Module" Click="OnNavigateToReportsClicked" HorizontalAlignment="Left" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Settings & Administration Card -->
+                    <Border Grid.Row="1" Grid.Column="1" Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="20">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
+                                <Border Width="36" Height="36" Background="#F1F5F9" CornerRadius="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="#475569" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Settings &amp; Administration" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+                                    <TextBlock Text="Terminal &amp; Hardware Config" FontSize="11" Foreground="#64748B" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="Terminal enrollment, SRP-6a pairing, server endpoint configuration, hardware peripheral selection, and diagnostics." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
+                            <Button Grid.Row="2" Content="Open Settings Module" Click="OnNavigateToSettingsClicked" HorizontalAlignment="Left" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </StackPanel>
+
+            <!-- Architecture & Presentation Boundary Cards -->
+            <StackPanel Spacing="12">
+                <TextBlock Text="SYSTEM &amp; ARCHITECTURE SPECIFICATION" FontSize="12" FontWeight="Bold" Foreground="#64748B" CharacterSpacing="50" />
+                <Grid ColumnSpacing="16" RowSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16, 12">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="TERMINAL HOST" FontSize="10" FontWeight="Bold" Foreground="#94A3B8" />
+                            <TextBlock Text="{x:Bind ViewModel.MachineName, Mode=OneWay}" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                            <TextBlock Text="{x:Bind ViewModel.Architecture, Mode=OneWay}" FontSize="11" Foreground="#64748B" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="1" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16, 12">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="FRAMEWORK" FontSize="10" FontWeight="Bold" Foreground="#94A3B8" />
+                            <TextBlock Text="WinUI 3 (Desktop)" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                            <TextBlock Text="Windows App SDK 1.6" FontSize="11" Foreground="#64748B" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="2" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16, 12">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="DATA AUTHORITY" FontSize="10" FontWeight="Bold" Foreground="#94A3B8" />
+                            <TextBlock Text="Authoritative Server" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                            <TextBlock Text="SQLite on Server Only" FontSize="11" Foreground="#64748B" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="3" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16, 12">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="CLIENT ROLE" FontSize="10" FontWeight="Bold" Foreground="#94A3B8" />
+                            <TextBlock Text="Presentation Client" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                            <TextBlock Text="Non-Authoritative" FontSize="11" Foreground="#64748B" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+
+            <!-- Information Notice Banner -->
+            <Border Background="#F8FAFC" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1" Padding="18, 14">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <FontIcon Glyph="&#xE946;" FontSize="18" Foreground="#2563EB" VerticalAlignment="Center" />
+                    <TextBlock Text="{x:Bind ViewModel.DataAuthorityNotice, Mode=OneWay}" FontSize="12" Foreground="#334155" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>
