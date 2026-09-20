@@ -54,6 +54,9 @@ public class BackupSettingsDto
     public int RetentionHourlyCount { get; set; } = 48;
     public int RetentionSnapshotCount { get; set; } = 5;
     public string BackupStoragePath { get; set; } = string.Empty;
+    public string? SecondaryStoragePath { get; set; }
+    public string? RemovableUsbBackupPath { get; set; }
+    public long MaxStorageCeilingBytes { get; set; } = 10L * 1024 * 1024 * 1024; // 10 GB default
 }
 
 public class UpdateBackupSettingsDto
@@ -66,6 +69,9 @@ public class UpdateBackupSettingsDto
     public int RetentionHourlyCount { get; set; }
     public int RetentionSnapshotCount { get; set; }
     public string? BackupStoragePath { get; set; }
+    public string? SecondaryStoragePath { get; set; }
+    public string? RemovableUsbBackupPath { get; set; }
+    public long? MaxStorageCeilingBytes { get; set; }
 }
 
 public class BackupProgressDto
@@ -86,3 +92,40 @@ public class BackupIntegrityReportDto
     public bool ForeignKeyCheckValid { get; set; }
     public string? Details { get; set; }
 }
+
+public class ExportDisasterRecoveryRequestDto
+{
+    public string StoreMasterRecoveryKey { get; set; } = string.Empty;
+    public string? DestinationPath { get; set; }
+}
+
+public class DisasterRecoveryExportResultDto
+{
+    public Guid ExportOperationId { get; set; }
+    public string DestinationFilePath { get; set; } = string.Empty;
+    public long SizeBytes { get; set; }
+    public string DatabaseSha256 { get; set; } = string.Empty;
+    public Guid StoreId { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+public class BareMetalRecoveryRequestDto
+{
+    public const string RequiredConfirmationPhrase = "CONFIRM_BARE_METAL_RECOVERY";
+
+    public string SourceBackupPath { get; set; } = string.Empty;
+    public string StoreMasterRecoveryKey { get; set; } = string.Empty;
+    public string ConfirmationPhrase { get; set; } = string.Empty;
+}
+
+public class BareMetalRecoveryResultDto
+{
+    public Guid OperationId { get; set; }
+    public bool Success { get; set; }
+    public Guid StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+    public int RestoredSchemaVersion { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+

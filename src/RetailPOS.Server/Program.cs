@@ -2,6 +2,7 @@ using RetailPOS.Infrastructure.Networking;
 using RetailPOS.Application.Services;
 using RetailPOS.Domain.Entities.Backup;
 using RetailPOS.Infrastructure.Backup;
+using RetailPOS.Infrastructure.Diagnostics;
 using RetailPOS.Infrastructure.Persistence.Interceptors;
 using RetailPOS.Server.BackgroundServices;
 using System.Globalization;
@@ -143,6 +144,7 @@ builder.Services.AddScoped<IFilesystemReconciliationEngine>(sp =>
     var backupsDir = options?.ResolveBackupsDirectory();
     var stagingDir = options?.ResolveStagingDirectory();
     var recoveryMarker = stagingDir != null ? Path.Combine(stagingDir, "Recovery", "restore_state.json") : null;
+    var drStatePath = stagingDir != null ? Path.Combine(stagingDir, "Recovery", "dr_recovery_state.json") : null;
     var quarantineDir = stagingDir != null ? Path.Combine(stagingDir, "Quarantine") : null;
     return new FilesystemReconciliationEngine(
         sp.GetRequiredService<IDatabaseOperationGate>(),
@@ -153,7 +155,8 @@ builder.Services.AddScoped<IFilesystemReconciliationEngine>(sp =>
         customDataDir: dataDir,
         customBackupsDir: backupsDir,
         customRecoveryMarkerPath: recoveryMarker,
-        customQuarantineDir: quarantineDir);
+        customQuarantineDir: quarantineDir,
+        customDrRecoveryMarkerPath: drStatePath);
 });
 builder.Services.AddScoped<IBackupService>(sp =>
 {
@@ -161,6 +164,7 @@ builder.Services.AddScoped<IBackupService>(sp =>
     var dataDir = options?.ResolveDataDirectory();
     var stagingDir = options?.ResolveStagingDirectory();
     var recoveryMarker = stagingDir != null ? Path.Combine(stagingDir, "Recovery", "restore_state.json") : null;
+    var drStatePath = stagingDir != null ? Path.Combine(stagingDir, "Recovery", "dr_recovery_state.json") : null;
     var quarantineDir = stagingDir != null ? Path.Combine(stagingDir, "Quarantine") : null;
     return new BackupService(
         sp.GetRequiredService<IBackupRepository>(),
@@ -177,7 +181,23 @@ builder.Services.AddScoped<IBackupService>(sp =>
         serviceScopeFactory: sp.GetService<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>(),
         customDataDir: dataDir,
         customQuarantineDir: quarantineDir,
-        customRecoveryMarkerPath: recoveryMarker);
+        customRecoveryMarkerPath: recoveryMarker,
+        customDrRecoveryMarkerPath: drStatePath);
+});
+builder.Services.AddScoped<ISupportDiagnosticsService>(sp =>
+{
+    var options = sp.GetService<Microsoft.Extensions.Options.IOptions<RetailPOS.Server.Configuration.ServerOptions>>()?.Value;
+    var stagingDir = options?.ResolveStagingDirectory() ?? RetailPOSPaths.GetDefaultStagingDirectory();
+    var diagDir = Path.Combine(stagingDir, "Diagnostics");
+    return new SupportDiagnosticsService(
+        sp.GetRequiredService<IStoreIdentityService>(),
+        sp.GetRequiredService<IServerIdentityService>(),
+        sp.GetRequiredService<IBackupService>(),
+        dbContext: sp.GetService<RetailDbContext>(),
+        scopeFactory: sp.GetService<IServiceScopeFactory>(),
+        contextFactory: sp.GetService<IDbContextFactory<RetailDbContext>>(),
+        auditLogRepository: sp.GetService<IAuditLogRepository>(),
+        customDiagnosticsDir: diagDir);
 });
 builder.Services.AddHostedService<ScheduledBackupBackgroundService>();
 
@@ -348,10 +368,15 @@ app.MapSecurityEndpoints();
 // Phase 11 Backup, Restore and Recovery endpoints
 app.MapBackupEndpoints();
 app.MapAdminRecoveryEndpoints();
+app.MapDiagnosticsEndpoints();
 
 // Safe initialization of database and default seed configuration
 using (var scope = app.Services.CreateScope())
 {
+    // Phase 11 & Phase 16.7 Filesystem Crash Reconciliation: Recover from interrupted DR or restore BEFORE accessing DB
+    var reconciler = scope.ServiceProvider.GetRequiredService<IFilesystemReconciliationEngine>();
+    await reconciler.ReconcileStartupAsync();
+
     // Phase 16.6 Migration Crash Recovery: Recover from interrupted migration before accessing DB
     var migrationRunner = scope.ServiceProvider.GetRequiredService<ISafeMigrationRunner>();
     await migrationRunner.PerformStartupRecoveryIfNeededAsync();
@@ -364,10 +389,6 @@ using (var scope = app.Services.CreateScope())
     {
         await safeRunner.RunMigrationLifecycleAsync(db);
     }
-
-    // Phase 11 Filesystem Crash Reconciliation & Store Identity initialization
-    var reconciler = scope.ServiceProvider.GetRequiredService<IFilesystemReconciliationEngine>();
-    await reconciler.ReconcileStartupAsync();
 
     var storeRepo = scope.ServiceProvider.GetRequiredService<IStoreRepository>();
     var store = await storeRepo.GetStoreAsync();
@@ -399,6 +420,34 @@ if (args.Contains("--provision-replacement-identity"))
         var req = new RetailPOS.Contracts.Terminals.ProvisionReplacementIdentityRequestDto(key.Trim());
         var result = await serverIdentityCli.ProvisionReplacementIdentityAsync(req);
         Console.WriteLine($"Replacement Identity Provisioned: {result.HumanFingerprint}");
+    }
+    return;
+}
+
+if (args.Contains("--disaster-recovery"))
+{
+    using var cliScope = app.Services.CreateScope();
+    var backupService = cliScope.ServiceProvider.GetRequiredService<IBackupService>();
+    Console.WriteLine("=== RetailPOS Bare-Metal Disaster Recovery CLI ===");
+    Console.Write("Enter Candidate DB or Encrypted Package path: ");
+    var path = Console.ReadLine();
+    Console.Write("Enter 64-character StoreMasterRecoveryKey: ");
+    var key = Console.ReadLine();
+    if (!string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(key))
+    {
+        var keyChars = key.Trim().ToCharArray();
+        try
+        {
+            var res = await backupService.ExecuteBareMetalRecoveryAsync(
+                path.Trim(),
+                keyChars,
+                RetailPOS.Contracts.Backup.BareMetalRecoveryRequestDto.RequiredConfirmationPhrase);
+            Console.WriteLine($"Bare-Metal Recovery Successful! StoreId: {res.StoreId}, SchemaVersion: {res.RestoredSchemaVersion}");
+        }
+        finally
+        {
+            Array.Clear(keyChars, 0, keyChars.Length);
+        }
     }
     return;
 }

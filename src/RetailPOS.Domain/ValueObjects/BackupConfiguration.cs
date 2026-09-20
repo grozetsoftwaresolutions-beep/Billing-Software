@@ -12,4 +12,8 @@ public class BackupConfiguration
     public int RetentionHourlyCount { get; set; } = 48;
     public int RetentionSnapshotCount { get; set; } = 5;
     public string BackupStoragePath { get; set; } = string.Empty;
+    public string? SecondaryStoragePath { get; set; }
+    public string? RemovableUsbBackupPath { get; set; }
+    public long MaxStorageCeilingBytes { get; set; } = 10L * 1024 * 1024 * 1024;
 }
+

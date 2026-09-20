@@ -173,6 +173,120 @@ public static class BackupEndpoints
             return Results.Ok(ApiResponse.Ok(settings, "Backup settings updated successfully."));
         });
 
+        // POST /api/v1/backups/export-dr - Export encrypted portable DR package
+        group.MapPost("/export-dr", async (
+            ExportDisasterRecoveryRequestDto request,
+            IBackupService backupService,
+            HttpContext httpContext,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.StoreMasterRecoveryKey) || request.StoreMasterRecoveryKey.Length != 64)
+            {
+                return Results.BadRequest(ApiResponse.Fail<DisasterRecoveryExportResultDto>("StoreMasterRecoveryKey must be a 64-character hexadecimal key.", "INVALID_MASTER_KEY"));
+            }
+
+            var keyChars = request.StoreMasterRecoveryKey.ToCharArray();
+            try
+            {
+                var result = await backupService.ExportDisasterRecoveryAsync(
+                    keyChars,
+                    request.DestinationPath,
+                    ct).ConfigureAwait(false);
+
+                return Results.Ok(ApiResponse.Ok(result, "Disaster recovery export completed successfully."));
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "INVALID_MASTER_KEY")
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "OPERATION_ALREADY_IN_PROGRESS")
+            {
+                return Results.Conflict(ApiResponse.Fail<DisasterRecoveryExportResultDto>(ex.Message, "OPERATION_IN_PROGRESS"));
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "SOURCE_BACKUP_NOT_FOUND")
+            {
+                return Results.NotFound(ApiResponse.Fail<DisasterRecoveryExportResultDto>(ex.Message, ex.ErrorCode));
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "INTEGRITY_CHECK_FAILED" || ex.ErrorCode == "CHECKSUM_MISMATCH")
+            {
+                return Results.UnprocessableEntity(ApiResponse.Fail<DisasterRecoveryExportResultDto>(ex.Message, ex.ErrorCode));
+            }
+            catch (DomainException ex)
+            {
+                return Results.BadRequest(ApiResponse.Fail<DisasterRecoveryExportResultDto>(ex.Message, ex.ErrorCode));
+            }
+            finally
+            {
+                Array.Clear(keyChars, 0, keyChars.Length);
+            }
+        });
+
+        // POST /api/v1/backups/bare-metal-recovery - Execute crash-safe bare-metal recovery
+        group.MapPost("/bare-metal-recovery", async (
+            BareMetalRecoveryRequestDto request,
+            IBackupService backupService,
+            HttpContext httpContext,
+            CancellationToken ct) =>
+        {
+            var remoteIp = httpContext.Connection.RemoteIpAddress;
+            if (remoteIp != null && !RetailPOS.Server.Middleware.LoopbackRecoveryMiddleware.IsLoopbackAddress(remoteIp))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            if (string.IsNullOrWhiteSpace(request.ConfirmationPhrase) ||
+                !string.Equals(request.ConfirmationPhrase.Trim(), BareMetalRecoveryRequestDto.RequiredConfirmationPhrase, StringComparison.Ordinal))
+            {
+                return Results.BadRequest(ApiResponse.Fail<BareMetalRecoveryResultDto>($"Exact confirmation phrase '{BareMetalRecoveryRequestDto.RequiredConfirmationPhrase}' is required.", "CONFIRMATION_PHRASE_INVALID"));
+            }
+
+            if (string.IsNullOrWhiteSpace(request.SourceBackupPath))
+            {
+                return Results.BadRequest(ApiResponse.Fail<BareMetalRecoveryResultDto>("SourceBackupPath is required.", "PATH_REQUIRED"));
+            }
+
+            if (string.IsNullOrWhiteSpace(request.StoreMasterRecoveryKey) || request.StoreMasterRecoveryKey.Length != 64)
+            {
+                return Results.BadRequest(ApiResponse.Fail<BareMetalRecoveryResultDto>("StoreMasterRecoveryKey must be a 64-character hexadecimal key.", "INVALID_MASTER_KEY"));
+            }
+
+            var keyChars = request.StoreMasterRecoveryKey.ToCharArray();
+            try
+            {
+                var result = await backupService.ExecuteBareMetalRecoveryAsync(
+                    request.SourceBackupPath,
+                    keyChars,
+                    request.ConfirmationPhrase,
+                    ct).ConfigureAwait(false);
+
+                return Results.Ok(ApiResponse.Ok(result, "Bare-metal disaster recovery completed successfully."));
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "INVALID_MASTER_KEY")
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "OPERATION_ALREADY_IN_PROGRESS")
+            {
+                return Results.Conflict(ApiResponse.Fail<BareMetalRecoveryResultDto>(ex.Message, "OPERATION_IN_PROGRESS"));
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "DATABASE_NOT_FOUND" || ex.ErrorCode == "PACKAGE_NOT_FOUND" || ex.ErrorCode == "FILE_NOT_FOUND")
+            {
+                return Results.NotFound(ApiResponse.Fail<BareMetalRecoveryResultDto>(ex.Message, ex.ErrorCode));
+            }
+            catch (DomainException ex) when (ex.ErrorCode == "INTEGRITY_CHECK_FAILED" || ex.ErrorCode == "RECONSTRUCTION_FAILED" || ex.ErrorCode == "CHECKSUM_MISMATCH")
+            {
+                return Results.UnprocessableEntity(ApiResponse.Fail<BareMetalRecoveryResultDto>(ex.Message, ex.ErrorCode));
+            }
+            catch (DomainException ex)
+            {
+                return Results.BadRequest(ApiResponse.Fail<BareMetalRecoveryResultDto>(ex.Message, ex.ErrorCode));
+            }
+            finally
+            {
+                Array.Clear(keyChars, 0, keyChars.Length);
+            }
+        });
+
         return app;
     }
 }

@@ -44,6 +44,7 @@ public sealed class BackupService : IBackupService
     private readonly string _dataDir;
     private readonly string _quarantineDir;
     private readonly string _recoveryMarkerPath;
+    private readonly string _drRecoveryMarkerPath;
 
     public BackupService(
         IBackupRepository backupRepo,
@@ -60,7 +61,8 @@ public sealed class BackupService : IBackupService
         IServiceScopeFactory? serviceScopeFactory = null,
         string? customDataDir = null,
         string? customQuarantineDir = null,
-        string? customRecoveryMarkerPath = null)
+        string? customRecoveryMarkerPath = null,
+        string? customDrRecoveryMarkerPath = null)
     {
         _backupRepo = backupRepo;
         _settingsStore = settingsStore;
@@ -79,6 +81,7 @@ public sealed class BackupService : IBackupService
         _quarantineDir = customQuarantineDir ?? Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Quarantine");
         var recoveryDir = Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Recovery");
         _recoveryMarkerPath = customRecoveryMarkerPath ?? Path.Combine(recoveryDir, "restore_state.json");
+        _drRecoveryMarkerPath = customDrRecoveryMarkerPath ?? Path.Combine(recoveryDir, "dr_recovery_state.json");
     }
 
     public async Task<BackupRecordDto> CreateBackupAsync(
@@ -98,6 +101,22 @@ public sealed class BackupService : IBackupService
         if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
         if (!Directory.Exists(_quarantineDir)) Directory.CreateDirectory(_quarantineDir);
 
+        // Pre-flight disk space check: target free space must be >= 2.5x (DB + WAL size)
+        var primaryDbPath = Path.Combine(_dataDir, "grozet_pos.db");
+        long dbSizeBytes = 0;
+        if (File.Exists(primaryDbPath))
+        {
+            dbSizeBytes += new FileInfo(primaryDbPath).Length;
+            var walPath = $"{primaryDbPath}-wal";
+            if (File.Exists(walPath)) dbSizeBytes += new FileInfo(walPath).Length;
+        }
+        long requiredDiskSpace = (long)(dbSizeBytes * 2.5);
+        if (requiredDiskSpace > 0)
+        {
+            CheckTargetDiskSpace(targetDir, requiredDiskSpace);
+            CheckTargetDiskSpace(_quarantineDir, requiredDiskSpace);
+        }
+
         var backupOpId = Guid.NewGuid();
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
         var typeStr = type.ToString().ToLowerInvariant();
@@ -116,6 +135,14 @@ public sealed class BackupService : IBackupService
             if (conn.State != System.Data.ConnectionState.Open)
             {
                 await conn.OpenAsync(ct).ConfigureAwait(false);
+            }
+
+            int currentSchemaVersion = 15;
+            using (var verCmd = conn.CreateCommand())
+            {
+                verCmd.CommandText = "PRAGMA user_version;";
+                var verVal = await verCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+                if (verVal != null) currentSchemaVersion = Convert.ToInt32(verVal, CultureInfo.InvariantCulture);
             }
 
             using (var cmd = conn.CreateCommand())
@@ -150,8 +177,8 @@ public sealed class BackupService : IBackupService
                 SizeBytes = sizeBytes,
                 Type = type.ToString(),
                 CreatedAtUtc = DateTime.UtcNow,
-                AppVersion = "1.0.0",
-                SchemaVersion = 11
+                AppVersion = "1.0.0-phase16.7",
+                SchemaVersion = currentSchemaVersion
             };
             var canonical = _manifestService.CreateCanonicalString(manifest);
             manifest.Signature = _manifestService.ComputeSignature(canonical, signingKey);
@@ -175,8 +202,8 @@ public sealed class BackupService : IBackupService
                 Origin = BackupOrigin.LocalGenerated,
                 StoreId = _storeIdentity.StoreId,
                 StoreName = _storeIdentity.StoreName,
-                AppVersion = "1.0.0",
-                SchemaVersion = 11,
+                AppVersion = "1.0.0-phase16.7",
+                SchemaVersion = currentSchemaVersion,
                 CreatedAtUtc = manifest.CreatedAtUtc,
                 CompletedAtUtc = DateTime.UtcNow,
                 TriggeredByUserId = triggeredByUserId,
@@ -212,7 +239,20 @@ public sealed class BackupService : IBackupService
                 }, CancellationToken.None);
             }
 
-            // Step 13: Audit log
+            // Step 13: Mirror to secondary / USB storage if configured
+            if (!string.IsNullOrWhiteSpace(settings.SecondaryStoragePath) || !string.IsNullOrWhiteSpace(settings.RemovableUsbBackupPath))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await MirrorBackupToSecondaryAsync(fileName, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch { }
+                }, CancellationToken.None);
+            }
+
+            // Step 14: Audit log
             await _auditRepo.RecordAsync(
                 nameof(BackupRecord),
                 "BACKUP_CREATED",
@@ -220,6 +260,7 @@ public sealed class BackupService : IBackupService
                 $"Backup created: {fileName}, Type: {type}, Size: {sizeBytes} bytes",
                 ct).ConfigureAwait(false);
             await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+
 
             return MapToDto(record);
         }
@@ -754,7 +795,10 @@ public sealed class BackupService : IBackupService
             RetentionDailyCount = config.RetentionDailyCount,
             RetentionHourlyCount = config.RetentionHourlyCount,
             RetentionSnapshotCount = config.RetentionSnapshotCount,
-            BackupStoragePath = config.BackupStoragePath
+            BackupStoragePath = config.BackupStoragePath,
+            SecondaryStoragePath = config.SecondaryStoragePath,
+            RemovableUsbBackupPath = config.RemovableUsbBackupPath,
+            MaxStorageCeilingBytes = config.MaxStorageCeilingBytes
         };
     }
 
@@ -775,10 +819,433 @@ public sealed class BackupService : IBackupService
         {
             current.BackupStoragePath = updateDto.BackupStoragePath;
         }
+        if (updateDto.SecondaryStoragePath != null)
+        {
+            current.SecondaryStoragePath = updateDto.SecondaryStoragePath;
+        }
+        if (updateDto.RemovableUsbBackupPath != null)
+        {
+            current.RemovableUsbBackupPath = updateDto.RemovableUsbBackupPath;
+        }
+        if (updateDto.MaxStorageCeilingBytes.HasValue)
+        {
+            current.MaxStorageCeilingBytes = updateDto.MaxStorageCeilingBytes.Value;
+        }
 
         await _settingsStore.SaveSettingsAsync(current, ct).ConfigureAwait(false);
         return await GetSettingsAsync(ct).ConfigureAwait(false);
     }
+
+    public async Task MirrorBackupToSecondaryAsync(string backupFileName, CancellationToken ct = default)
+    {
+        var settings = await _settingsStore.GetSettingsAsync(ct).ConfigureAwait(false);
+        var primaryDir = !string.IsNullOrWhiteSpace(settings.BackupStoragePath)
+            ? settings.BackupStoragePath
+            : RetailPOSPaths.GetDefaultBackupsDirectory();
+        var primaryDb = Path.Combine(primaryDir, backupFileName);
+        var primaryManifest = $"{primaryDb}.manifest";
+
+        if (!File.Exists(primaryDb) || !File.Exists(primaryManifest))
+        {
+            return;
+        }
+
+        // 1. Class B1: Secondary Internal Disk Backup (Plaintext SQLite + companion manifest)
+        if (!string.IsNullOrWhiteSpace(settings.SecondaryStoragePath))
+        {
+            try
+            {
+                var secQuarantine = Path.Combine(settings.SecondaryStoragePath, "Staging", "Quarantine");
+                var secBackups = Path.Combine(settings.SecondaryStoragePath, "Backups");
+                Directory.CreateDirectory(secQuarantine);
+                Directory.CreateDirectory(secBackups);
+
+                var secTmpDb = Path.Combine(secQuarantine, $"{backupFileName}.tmp_{Guid.NewGuid():N}");
+                var secTmpManifest = $"{secTmpDb}.manifest";
+                var secFinalDb = Path.Combine(secBackups, backupFileName);
+                var secFinalManifest = Path.Combine(secBackups, $"{backupFileName}.manifest");
+
+                File.Copy(primaryDb, secTmpDb, overwrite: true);
+                File.Copy(primaryManifest, secTmpManifest, overwrite: true);
+
+                byte[] secBytes = await File.ReadAllBytesAsync(secTmpDb, ct).ConfigureAwait(false);
+                string secSha256 = Convert.ToHexString(SHA256.HashData(secBytes));
+                var manifest = await _manifestService.LoadManifestAsync(secTmpManifest, ct).ConfigureAwait(false);
+
+                if (manifest != null && string.Equals(secSha256, manifest.DatabaseSha256, StringComparison.OrdinalIgnoreCase) &&
+                    _manifestService.VerifySignature(manifest, _storeIdentity.GetStoreSigningKey()))
+                {
+                    File.Move(secTmpDb, secFinalDb, overwrite: true);
+                    File.Move(secTmpManifest, secFinalManifest, overwrite: true);
+
+                    await _auditRepo.RecordAsync(
+                        nameof(BackupRecord),
+                        "BACKUP_SECONDARY_MIRROR_COMPLETED",
+                        "System",
+                        $"Mirrored backup {backupFileName} to secondary internal storage {settings.SecondaryStoragePath}",
+                        ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    try { File.Delete(secTmpDb); } catch { }
+                    try { File.Delete(secTmpManifest); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                await _auditRepo.RecordAsync(
+                    nameof(BackupRecord),
+                    "BACKUP_SECONDARY_STORAGE_UNAVAILABLE",
+                    "System",
+                    $"Failed to mirror backup to secondary storage: {ex.Message}",
+                    ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    public async Task<DisasterRecoveryExportResultDto> ExportDisasterRecoveryAsync(
+        char[] masterRecoveryKeyHex,
+        string? destinationPath = null,
+        CancellationToken ct = default)
+    {
+        if (masterRecoveryKeyHex == null || masterRecoveryKeyHex.Length != 64)
+        {
+            throw new DomainException("StoreMasterRecoveryKey must be a 64-character hexadecimal string.", "INVALID_MASTER_KEY");
+        }
+
+        var store = await _dbContext.Stores.AsNoTracking().FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        var storeGuid = store?.StoreGuid ?? _storeIdentity.StoreId;
+        var storeName = store?.StoreName ?? _storeIdentity.StoreName;
+
+        if (store != null && !string.IsNullOrWhiteSpace(store.MasterKeyValidatorHash))
+        {
+            if (!_storeIdentity.ValidateMasterRecoveryKeyAgainstVerifier(storeGuid, masterRecoveryKeyHex, store.MasterKeyValidatorHash))
+            {
+                throw new DomainException("Invalid StoreMasterRecoveryKey.", "INVALID_MASTER_KEY");
+            }
+        }
+        else if (!_storeIdentity.ValidateMasterRecoveryKey(masterRecoveryKeyHex))
+        {
+            throw new DomainException("Invalid StoreMasterRecoveryKey.", "INVALID_MASTER_KEY");
+        }
+
+        var opId = Guid.NewGuid();
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        var quarantineDb = Path.Combine(_quarantineDir, $"quarantine_dr_{opId:N}.tmp");
+
+        var targetFile = !string.IsNullOrWhiteSpace(destinationPath)
+            ? destinationPath
+            : Path.Combine(RetailPOSPaths.GetDefaultBackupsDirectory(), $"grozet_pos_dr_{timestamp}_{opId:N}.gdrexport");
+
+        try
+        {
+            var conn = _dbContext.Database.GetDbConnection();
+            if (conn.State != System.Data.ConnectionState.Open)
+            {
+                await conn.OpenAsync(ct).ConfigureAwait(false);
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = $"VACUUM INTO '{quarantineDb.Replace("'", "''")}';";
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+
+            ValidateSqliteIntegrity(quarantineDb);
+
+            await PortableDisasterRecoveryExportService.ExportToFileAsync(
+                quarantineDb,
+                masterRecoveryKeyHex,
+                storeGuid,
+                storeName,
+                targetFile,
+                ct).ConfigureAwait(false);
+
+            var fi = new FileInfo(targetFile);
+            var header = await PortableDisasterRecoveryExportService.ReadHeaderAsync(targetFile, ct).ConfigureAwait(false);
+
+            await _auditRepo.RecordAsync(
+                nameof(BackupRecord),
+                "DISASTER_RECOVERY_EXPORT_COMPLETED",
+                "Owner",
+                $"Exported encrypted disaster recovery package {Path.GetFileName(targetFile)} ({fi.Length} bytes)",
+                ct).ConfigureAwait(false);
+            await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+
+            return new DisasterRecoveryExportResultDto
+            {
+                ExportOperationId = header.ExportOperationId,
+                DestinationFilePath = targetFile,
+                SizeBytes = fi.Length,
+                DatabaseSha256 = header.DatabaseSha256,
+                StoreId = storeGuid,
+                CreatedAtUtc = header.CreatedAtUtc
+            };
+        }
+        finally
+        {
+            if (File.Exists(quarantineDb)) try { File.Delete(quarantineDb); } catch { }
+        }
+    }
+
+    public async Task<BareMetalRecoveryResultDto> ExecuteBareMetalRecoveryAsync(
+        string candidatePath,
+        char[] masterRecoveryKeyHex,
+        string confirmationPhrase,
+        CancellationToken ct = default)
+    {
+        if (confirmationPhrase != BareMetalRecoveryRequestDto.RequiredConfirmationPhrase)
+        {
+            throw new DomainException($"Confirmation phrase mismatch. Expected '{BareMetalRecoveryRequestDto.RequiredConfirmationPhrase}'.", "CONFIRMATION_PHRASE_MISMATCH");
+        }
+
+        if (masterRecoveryKeyHex == null || masterRecoveryKeyHex.Length != 64)
+        {
+            throw new DomainException("StoreMasterRecoveryKey must be a 64-character hexadecimal string.", "INVALID_MASTER_KEY");
+        }
+
+        if (string.IsNullOrWhiteSpace(candidatePath) || !File.Exists(candidatePath))
+        {
+            throw new FileNotFoundException("Candidate backup file does not exist.", candidatePath);
+        }
+
+        using var opLock = await _opCoordinator.AcquireExclusiveLockAsync("BareMetalDisasterRecovery", ct).ConfigureAwait(false);
+
+        var drOpId = Guid.NewGuid();
+        var quarantineCandidatePath = Path.Combine(_quarantineDir, $"dr_candidate_{drOpId:N}.tmp");
+        var quarantineCandidateDbPath = quarantineCandidatePath;
+        var primaryDbPath = Path.Combine(_dataDir, "grozet_pos.db");
+        var recoveryStagingDir = Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Recovery");
+        Directory.CreateDirectory(recoveryStagingDir);
+        var prevDbPreservedPath = Path.Combine(recoveryStagingDir, $"prev_db_{drOpId:N}.bak");
+        var prevIdentityPreservedPath = Path.Combine(recoveryStagingDir, $"prev_identity_{drOpId:N}.bak");
+        var securityDir = RetailPOSPaths.GetDefaultSecurityDirectory();
+        var primaryIdentityPath = Path.Combine(securityDir, "store_identity.dat");
+
+        byte[]? recoveredSigningKey = null;
+
+        try
+        {
+            // Stage 1: Candidate file supply into quarantine
+            File.Copy(candidatePath, quarantineCandidatePath, overwrite: true);
+
+            // Stage 2: Structural checks
+            bool isEncryptedPackage = false;
+            using (var s = File.OpenRead(quarantineCandidatePath))
+            {
+                byte[] magic = new byte[4];
+                if (s.Read(magic, 0, 4) == 4 && magic[0] == 0x47 && magic[1] == 0x44 && magic[2] == 0x52 && magic[3] == 0x31)
+                {
+                    isEncryptedPackage = true;
+                }
+            }
+
+            if (isEncryptedPackage)
+            {
+                var decryptedDbPath = Path.Combine(_quarantineDir, $"dr_decrypted_{drOpId:N}.db");
+                await PortableDisasterRecoveryExportService.DecryptExportPackageAsync(
+                    quarantineCandidatePath,
+                    masterRecoveryKeyHex,
+                    decryptedDbPath,
+                    ct).ConfigureAwait(false);
+                quarantineCandidateDbPath = decryptedDbPath;
+            }
+            else
+            {
+                if (!VerifySqliteHeader(quarantineCandidateDbPath))
+                {
+                    throw new DomainException("Candidate file does not have a valid SQLite header.", "INVALID_SQLITE_HEADER");
+                }
+            }
+
+            // Stage 3 & 4: Phase 16.5 Recovery Key Authentication & Unwrapping
+            Guid candidateStoreGuid = Guid.Empty;
+            string candidateStoreName = "Restored Store";
+            string candidateValidatorHash = string.Empty;
+            string candidateWrappedKey = string.Empty;
+            int candidateSchemaVersion = 15;
+
+            using (var conn = new SqliteConnection($"Data Source={quarantineCandidateDbPath};Mode=ReadOnly;Pooling=False"))
+            {
+                await conn.OpenAsync(ct).ConfigureAwait(false);
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT store_guid, store_name, master_key_validator_hash, wrapped_store_signing_key FROM stores LIMIT 1;";
+                    using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                    if (await reader.ReadAsync(ct).ConfigureAwait(false))
+                    {
+                        candidateStoreGuid = reader.GetGuid(0);
+                        candidateStoreName = reader.GetString(1);
+                        candidateValidatorHash = reader.GetString(2);
+                        candidateWrappedKey = reader.GetString(3);
+                    }
+                    else
+                    {
+                        throw new DomainException("Candidate database stores table is empty.", "STORE_NOT_FOUND");
+                    }
+                }
+
+                using (var verCmd = conn.CreateCommand())
+                {
+                    verCmd.CommandText = "PRAGMA user_version;";
+                    var ver = await verCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+                    if (ver != null) candidateSchemaVersion = Convert.ToInt32(ver, CultureInfo.InvariantCulture);
+                }
+            }
+            SqliteConnection.ClearAllPools();
+
+            // Authenticate Recovery Key against candidate validator using EXACT Phase 16.5 validator
+            var valKey = (char[])masterRecoveryKeyHex.Clone();
+            bool isValidKey = _storeIdentity.ValidateMasterRecoveryKeyAgainstVerifier(
+                candidateStoreGuid,
+                valKey,
+                candidateValidatorHash);
+
+            if (!isValidKey)
+            {
+                throw new DomainException("Invalid store master recovery key for candidate database.", "AUTHENTICATION_FAILED_INVALID_RECOVERY_KEY");
+            }
+
+            // Stage 4: Unwrap Stable StoreSigningKey using EXACT Phase 16.5 unwrapper
+            recoveredSigningKey = _storeIdentity.UnwrapStoreSigningKey(
+                candidateStoreGuid,
+                masterRecoveryKeyHex,
+                candidateWrappedKey);
+
+            // Stage 5: Verify companion manifest if exists
+            var companionManifest = $"{candidatePath}.manifest";
+            if (File.Exists(companionManifest))
+            {
+                var manifest = await _manifestService.LoadManifestAsync(companionManifest, ct).ConfigureAwait(false);
+                if (manifest != null)
+                {
+                    if (manifest.StoreId != candidateStoreGuid)
+                    {
+                        throw new DomainException("Candidate manifest store ID does not match database.", "STORE_ID_MISMATCH");
+                    }
+
+                    if (!_manifestService.VerifySignature(manifest, recoveredSigningKey))
+                    {
+                        throw new DomainException("Candidate manifest signature is invalid.", "MANIFEST_SIGNATURE_INVALID");
+                    }
+                }
+            }
+
+            // Verify SQLite integrity of candidate DB
+            ValidateSqliteIntegrity(quarantineCandidateDbPath);
+
+            // Compute candidate SHA-256
+            string candidateSha256;
+            using (var s = File.OpenRead(quarantineCandidateDbPath))
+            {
+                var hashBytes = await SHA256.HashDataAsync(s, ct).ConfigureAwait(false);
+                candidateSha256 = Convert.ToHexString(hashBytes).ToUpperInvariant();
+            }
+
+            // Stage 6: Crash-Safe Promotion State Machine (7 states)
+            // State 1: DR_PREPARED
+            string? prevDb = null;
+            string? prevIdentity = null;
+            if (File.Exists(primaryDbPath))
+            {
+                File.Copy(primaryDbPath, prevDbPreservedPath, overwrite: true);
+                prevDb = prevDbPreservedPath;
+            }
+            if (File.Exists(primaryIdentityPath))
+            {
+                File.Copy(primaryIdentityPath, prevIdentityPreservedPath, overwrite: true);
+                prevIdentity = prevIdentityPreservedPath;
+            }
+
+            await WriteDrMarkerAsync(drOpId, "DR_PREPARED", quarantineCandidateDbPath, candidateSha256, candidateStoreGuid, candidateStoreName, prevDb, prevIdentity, ct).ConfigureAwait(false);
+
+            // State 2: DR_CANDIDATE_VERIFIED
+            await WriteDrMarkerAsync(drOpId, "DR_CANDIDATE_VERIFIED", quarantineCandidateDbPath, candidateSha256, candidateStoreGuid, candidateStoreName, prevDb, prevIdentity, ct).ConfigureAwait(false);
+
+            // State 3: DR_PROMOTION_STARTED
+            await WriteDrMarkerAsync(drOpId, "DR_PROMOTION_STARTED", quarantineCandidateDbPath, candidateSha256, candidateStoreGuid, candidateStoreName, prevDb, prevIdentity, ct).ConfigureAwait(false);
+            SqliteConnection.ClearAllPools();
+            var primaryWal = $"{primaryDbPath}-wal";
+            var primaryShm = $"{primaryDbPath}-shm";
+            if (File.Exists(primaryWal)) try { File.Delete(primaryWal); } catch { }
+            if (File.Exists(primaryShm)) try { File.Delete(primaryShm); } catch { }
+
+            // State 4: DR_DB_PROMOTED
+            File.Move(quarantineCandidateDbPath, primaryDbPath, overwrite: true);
+            await WriteDrMarkerAsync(drOpId, "DR_DB_PROMOTED", primaryDbPath, candidateSha256, candidateStoreGuid, candidateStoreName, prevDb, prevIdentity, ct).ConfigureAwait(false);
+
+            // State 5: DR_IDENTITY_PROMOTED (Clean-Machine DPAPI Reconstruction)
+            var initKey = (char[])masterRecoveryKeyHex.Clone();
+            await _storeIdentity.InitializeNewStoreIdentityAsync(
+                candidateStoreGuid,
+                candidateStoreName,
+                recoveredSigningKey,
+                initKey,
+                ct).ConfigureAwait(false);
+
+            // Verify newly generated DPAPI identity on the replacement machine
+            await _storeIdentity.ReloadActiveIdentityAsync(ct).ConfigureAwait(false);
+            if (_storeIdentity.StoreId != candidateStoreGuid ||
+                !CryptographicOperations.FixedTimeEquals(_storeIdentity.GetStoreSigningKey(), recoveredSigningKey))
+            {
+                throw new DomainException("Reconstructed DPAPI store identity verification failed on replacement machine.", "IDENTITY_VERIFICATION_FAILED");
+            }
+
+            await WriteDrMarkerAsync(drOpId, "DR_IDENTITY_PROMOTED", primaryDbPath, candidateSha256, candidateStoreGuid, candidateStoreName, prevDb, prevIdentity, ct).ConfigureAwait(false);
+
+            // State 6: DR_POST_PROMOTION_VERIFYING
+            await WriteDrMarkerAsync(drOpId, "DR_POST_PROMOTION_VERIFYING", primaryDbPath, candidateSha256, candidateStoreGuid, candidateStoreName, prevDb, prevIdentity, ct).ConfigureAwait(false);
+            ValidateSqliteIntegrity(primaryDbPath);
+
+            // State 7: DR_COMPLETED
+            await WriteDrMarkerAsync(drOpId, "DR_COMPLETED", primaryDbPath, candidateSha256, candidateStoreGuid, candidateStoreName, null, null, ct).ConfigureAwait(false);
+
+            // Record audit log
+            try
+            {
+                await _auditRepo.RecordAsync(
+                    "Store",
+                    "DISASTER_RECOVERY_COMPLETED",
+                    "BareMetalOperator",
+                    $"Bare-metal recovery completed for store {candidateStoreGuid}. Restored DB and reconstructed local DPAPI identity.",
+                    ct).ConfigureAwait(false);
+                await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort audit logging; schema migrations may need to run on candidate DB
+            }
+
+            // Clean marker & preserved files
+            if (File.Exists(_drRecoveryMarkerPath)) try { File.Delete(_drRecoveryMarkerPath); } catch { }
+            if (File.Exists(prevDbPreservedPath)) try { File.Delete(prevDbPreservedPath); } catch { }
+            if (File.Exists(prevIdentityPreservedPath)) try { File.Delete(prevIdentityPreservedPath); } catch { }
+
+            return new BareMetalRecoveryResultDto
+            {
+                OperationId = drOpId,
+                Success = true,
+                StoreId = candidateStoreGuid,
+                StoreName = candidateStoreName,
+                RestoredSchemaVersion = candidateSchemaVersion,
+                CompletedAtUtc = DateTime.UtcNow,
+                Message = "Bare-metal disaster recovery completed successfully. Database and local DPAPI identity promoted."
+            };
+        }
+        catch
+        {
+            if (File.Exists(quarantineCandidatePath)) try { File.Delete(quarantineCandidatePath); } catch { }
+            if (File.Exists(quarantineCandidateDbPath)) try { File.Delete(quarantineCandidateDbPath); } catch { }
+            throw;
+        }
+        finally
+        {
+            if (recoveredSigningKey != null) CryptographicOperations.ZeroMemory(recoveredSigningKey);
+            CryptographicOperations.ZeroMemory(System.Runtime.InteropServices.MemoryMarshal.AsBytes(masterRecoveryKeyHex.AsSpan()));
+        }
+    }
+
 
     private static void ValidateSqliteIntegrity(string filePath)
     {
@@ -832,6 +1299,30 @@ public sealed class BackupService : IBackupService
         }
     }
 
+    private static void CheckTargetDiskSpace(string targetDir, long requiredBytes)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(targetDir);
+            var root = Path.GetPathRoot(fullPath);
+            if (!string.IsNullOrWhiteSpace(root))
+            {
+                var drive = new DriveInfo(root);
+                if (drive.IsReady && drive.AvailableFreeSpace < requiredBytes)
+                {
+                    throw new DomainException(
+                        $"Insufficient disk space on drive '{root}'. Required: {requiredBytes} bytes, Available: {drive.AvailableFreeSpace} bytes.",
+                        "INSUFFICIENT_DISK_SPACE");
+                }
+            }
+        }
+        catch (DomainException)
+        {
+            throw;
+        }
+        catch { }
+    }
+
     private async Task WriteMarkerAsync(
         Guid restoreOpId,
         string state,
@@ -859,6 +1350,41 @@ public sealed class BackupService : IBackupService
 
         var json = JsonSerializer.Serialize(marker, IndentedJson);
         await File.WriteAllTextAsync(_recoveryMarkerPath, json, ct).ConfigureAwait(false);
+    }
+
+    private async Task WriteDrMarkerAsync(
+        Guid operationId,
+        string state,
+        string candidateDbPath,
+        string candidateSha256,
+        Guid storeId,
+        string storeName,
+        string? preservedDbPath,
+        string? preservedIdentityPath,
+        CancellationToken ct)
+    {
+        var marker = new
+        {
+            OperationId = operationId,
+            State = state,
+            CandidateDbPath = candidateDbPath,
+            CandidateDbSha256 = candidateSha256,
+            StoreId = storeId,
+            StoreName = storeName,
+            PreviousDbPreservedPath = preservedDbPath,
+            PreviousIdentityPreservedPath = preservedIdentityPath,
+            CreatedAtUtc = DateTime.UtcNow,
+            LastTransitionUtc = DateTime.UtcNow
+        };
+
+        var dir = Path.GetDirectoryName(_drRecoveryMarkerPath);
+        if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var json = JsonSerializer.Serialize(marker, IndentedJson);
+        await File.WriteAllTextAsync(_drRecoveryMarkerPath, json, ct).ConfigureAwait(false);
     }
 
 

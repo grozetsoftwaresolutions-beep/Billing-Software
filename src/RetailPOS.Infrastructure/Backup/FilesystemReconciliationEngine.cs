@@ -28,6 +28,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
     private readonly string _backupsDir;
     private readonly string _quarantineDir;
     private readonly string _recoveryMarkerPath;
+    private readonly string _drRecoveryMarkerPath;
 
     public FilesystemReconciliationEngine(
         IDatabaseOperationGate gate,
@@ -38,7 +39,8 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         string? customDataDir = null,
         string? customBackupsDir = null,
         string? customRecoveryMarkerPath = null,
-        string? customQuarantineDir = null)
+        string? customQuarantineDir = null,
+        string? customDrRecoveryMarkerPath = null)
     {
         _gate = gate;
         _storeIdentity = storeIdentity;
@@ -51,6 +53,7 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         _quarantineDir = customQuarantineDir ?? Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Quarantine");
         var recoveryDir = Path.Combine(RetailPOSPaths.GetDefaultStagingDirectory(), "Recovery");
         _recoveryMarkerPath = customRecoveryMarkerPath ?? Path.Combine(recoveryDir, "restore_state.json");
+        _drRecoveryMarkerPath = customDrRecoveryMarkerPath ?? Path.Combine(recoveryDir, "dr_recovery_state.json");
     }
 
     public async Task ReconcileStartupAsync(CancellationToken ct = default)
@@ -58,12 +61,16 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         // 1. Sweep quarantine leftovers
         SweepQuarantineFiles();
 
-        // 2. Reconcile restore state marker if present
+        // 2. Reconcile bare-metal disaster recovery state marker if present
+        await ReconcileDisasterRecoveryMarkerAsync(ct).ConfigureAwait(false);
+
+        // 3. Reconcile restore state marker if present
         await ReconcileRestoreMarkerAsync(ct).ConfigureAwait(false);
 
-        // 3. Reconcile two-file publication crash states
+        // 4. Reconcile two-file publication crash states
         await ReconcilePublicationArtifactsAsync(ct).ConfigureAwait(false);
     }
+
 
     private void SweepQuarantineFiles()
     {
@@ -377,6 +384,131 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         }
     }
 
+    private async Task ReconcileDisasterRecoveryMarkerAsync(CancellationToken ct)
+    {
+        if (!File.Exists(_drRecoveryMarkerPath))
+        {
+            return;
+        }
+
+        DisasterRecoveryStateMarker? marker = null;
+        try
+        {
+            var json = await File.ReadAllTextAsync(_drRecoveryMarkerPath, ct).ConfigureAwait(false);
+            marker = JsonSerializer.Deserialize<DisasterRecoveryStateMarker>(json);
+        }
+        catch
+        {
+            _gate.TransitionToEmergencyLockdown("Corrupted bare-metal disaster recovery marker detected on startup.");
+            return;
+        }
+
+        if (marker == null)
+        {
+            _gate.TransitionToEmergencyLockdown("Null bare-metal disaster recovery marker detected on startup.");
+            return;
+        }
+
+        var primaryDbPath = Path.Combine(_dataDir, "grozet_pos.db");
+        var securityDir = RetailPOSPaths.GetDefaultSecurityDirectory();
+        var primaryIdentityPath = Path.Combine(securityDir, "store_identity.dat");
+
+        switch (marker.State)
+        {
+            case "DR_PREPARED":
+            case "DR_CANDIDATE_VERIFIED":
+                if (!string.IsNullOrWhiteSpace(marker.PreviousDbPreservedPath) && File.Exists(marker.PreviousDbPreservedPath))
+                {
+                    try { File.Delete(marker.PreviousDbPreservedPath); } catch { }
+                }
+                if (!string.IsNullOrWhiteSpace(marker.PreviousIdentityPreservedPath) && File.Exists(marker.PreviousIdentityPreservedPath))
+                {
+                    try { File.Delete(marker.PreviousIdentityPreservedPath); } catch { }
+                }
+                DeleteDrMarker();
+                break;
+
+            case "DR_PROMOTION_STARTED":
+                if (!string.IsNullOrWhiteSpace(marker.PreviousDbPreservedPath) && File.Exists(marker.PreviousDbPreservedPath))
+                {
+                    File.Copy(marker.PreviousDbPreservedPath, primaryDbPath, overwrite: true);
+                    if (!string.IsNullOrWhiteSpace(marker.PreviousIdentityPreservedPath) && File.Exists(marker.PreviousIdentityPreservedPath))
+                    {
+                        File.Copy(marker.PreviousIdentityPreservedPath, primaryIdentityPath, overwrite: true);
+                    }
+                    DeleteDrMarker();
+                    _gate.TransitionToAvailable();
+                }
+                else
+                {
+                    if (File.Exists(primaryDbPath)) try { File.Delete(primaryDbPath); } catch { }
+                    _gate.TransitionToEmergencyLockdown("Bare-metal recovery interrupted during DB promotion. Re-run disaster recovery.");
+                }
+                break;
+
+            case "DR_DB_PROMOTED":
+                if (!string.IsNullOrWhiteSpace(marker.PreviousDbPreservedPath) && File.Exists(marker.PreviousDbPreservedPath))
+                {
+                    File.Copy(marker.PreviousDbPreservedPath, primaryDbPath, overwrite: true);
+                    if (!string.IsNullOrWhiteSpace(marker.PreviousIdentityPreservedPath) && File.Exists(marker.PreviousIdentityPreservedPath))
+                    {
+                        File.Copy(marker.PreviousIdentityPreservedPath, primaryIdentityPath, overwrite: true);
+                    }
+                    DeleteDrMarker();
+                    _gate.TransitionToAvailable();
+                }
+                else
+                {
+                    _gate.TransitionToEmergencyLockdown("Bare-metal recovery interrupted during identity reconstruction. Re-run 'retailpos-server.exe --disaster-recovery' with StoreMasterRecoveryKey.");
+                }
+                break;
+
+            case "DR_IDENTITY_PROMOTED":
+            case "DR_POST_PROMOTION_VERIFYING":
+                if (File.Exists(primaryDbPath) && VerifySqliteFile(primaryDbPath) && File.Exists(primaryIdentityPath))
+                {
+                    try
+                    {
+                        await _storeIdentity.ReloadActiveIdentityAsync(ct).ConfigureAwait(false);
+                        if (_storeIdentity.StoreId == marker.StoreId)
+                        {
+                            if (!string.IsNullOrWhiteSpace(marker.PreviousDbPreservedPath) && File.Exists(marker.PreviousDbPreservedPath))
+                            {
+                                try { File.Delete(marker.PreviousDbPreservedPath); } catch { }
+                            }
+                            if (!string.IsNullOrWhiteSpace(marker.PreviousIdentityPreservedPath) && File.Exists(marker.PreviousIdentityPreservedPath))
+                            {
+                                try { File.Delete(marker.PreviousIdentityPreservedPath); } catch { }
+                            }
+                            DeleteDrMarker();
+                            _gate.TransitionToAvailable();
+                            return;
+                        }
+                    }
+                    catch { }
+                }
+                _gate.TransitionToEmergencyLockdown("Bare-metal post-promotion verification failed during startup reconciliation.");
+                break;
+
+            case "DR_COMPLETED":
+                DeleteDrMarker();
+                _gate.TransitionToAvailable();
+                break;
+
+            default:
+                _gate.TransitionToEmergencyLockdown($"Unknown bare-metal disaster recovery marker state '{marker.State}'.");
+                break;
+        }
+    }
+
+    private void DeleteDrMarker()
+    {
+        if (File.Exists(_drRecoveryMarkerPath))
+        {
+            try { File.Delete(_drRecoveryMarkerPath); } catch { }
+        }
+    }
+
     public sealed class RestoreStateMarker
     {
         public Guid RestoreOperationId { get; set; }
@@ -387,4 +519,19 @@ public sealed class FilesystemReconciliationEngine : IFilesystemReconciliationEn
         public DateTime TimestampUtc { get; set; }
         public string Mac { get; set; } = string.Empty;
     }
+
+    public sealed class DisasterRecoveryStateMarker
+    {
+        public Guid OperationId { get; set; }
+        public string State { get; set; } = string.Empty;
+        public string CandidateDbPath { get; set; } = string.Empty;
+        public string CandidateDbSha256 { get; set; } = string.Empty;
+        public Guid StoreId { get; set; }
+        public string StoreName { get; set; } = string.Empty;
+        public string? PreviousDbPreservedPath { get; set; }
+        public string? PreviousIdentityPreservedPath { get; set; }
+        public DateTime CreatedAtUtc { get; set; }
+        public DateTime LastTransitionUtc { get; set; }
+    }
 }
+

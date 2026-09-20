@@ -19,4 +19,8 @@ public interface IBackupService
     Task EmergencyRestoreAsync(string fileName, char[] masterRecoveryKeyHex, CancellationToken ct = default);
     Task<BackupSettingsDto> GetSettingsAsync(CancellationToken ct = default);
     Task<BackupSettingsDto> UpdateSettingsAsync(UpdateBackupSettingsDto updateDto, CancellationToken ct = default);
+    Task<DisasterRecoveryExportResultDto> ExportDisasterRecoveryAsync(char[] masterRecoveryKeyHex, string? destinationPath = null, CancellationToken ct = default);
+    Task<BareMetalRecoveryResultDto> ExecuteBareMetalRecoveryAsync(string candidatePath, char[] masterRecoveryKeyHex, string confirmationPhrase, CancellationToken ct = default);
+    Task MirrorBackupToSecondaryAsync(string backupFileName, CancellationToken ct = default);
 }
+
