@@ -13,3 +13,6 @@
 #define HttpsPort "5101"
 #define DiscoveryPort "5105"
 
+#ifdef SignTool
+SignTool={#SignTool}
+#endif

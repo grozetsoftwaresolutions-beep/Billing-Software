@@ -3,6 +3,8 @@
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
+!scripts/release/
+!src/RetailPOS.Contracts/Release/
 x64/
 x86/
 [Aa][Rr][Mm]/
@@ -51,3 +53,8 @@ Thumbs.db
 ## Installer Output
 packaging/Output/
 
+## Code Signing Private Key Guardrails & Release Staging
+*.pfx
+*.p12
+*.key
+artifacts/releases/

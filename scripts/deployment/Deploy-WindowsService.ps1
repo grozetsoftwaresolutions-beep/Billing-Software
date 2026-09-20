@@ -45,7 +45,8 @@ param(
     [string]$DataRoot = "$env:ProgramData\GROZET\RetailPOS",
     [int]$HttpPort = 5100,
     [int]$HttpsPort = 5101,
-    [int]$DiscoveryPort = 5105
+    [int]$DiscoveryPort = 5105,
+    [switch]$AllowUnsignedBinaries = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,7 +86,22 @@ function Install-GrozetService {
         }
     }
 
-    # 2. Register Windows Service with SCM
+    # 2. Authenticode Signature Pre-Check Gate
+    Write-Host "Verifying Authenticode signature of target binary: $BinaryPath" -ForegroundColor Yellow
+    if (Test-Path $BinaryPath) {
+        $sig = Get-AuthenticodeSignature -FilePath $BinaryPath
+        if ($sig.Status -ne 'Valid') {
+            if ($AllowUnsignedBinaries) {
+                Write-Warning "Binary '$BinaryPath' is not Authenticode signed ($($sig.StatusMessage)). Proceeding due to -AllowUnsignedBinaries override."
+            } else {
+                throw "FAIL-CLOSED: Refusing to register service. Binary '$BinaryPath' lacks a valid Authenticode signature ($($sig.StatusMessage))."
+            }
+        } else {
+            Write-Host "  [OK] Authenticode signature verified on: $BinaryPath (Publisher: $($sig.SignerCertificate.Subject))" -ForegroundColor Green
+        }
+    }
+
+    # 3. Register Windows Service with SCM
     Write-Host "Registering Windows Service: $ServiceName with account $ServiceAccount" -ForegroundColor Yellow
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 
@@ -341,3 +357,41 @@ switch ($Action) {
     'Stop'      { Stop-GrozetService }
     'Restart'   { Restart-GrozetService }
 }
+
+# SIG # Begin signature block
+# MIIGbQYJKoZIhvcNAQcCoIIGXjCCBloCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAfs7F+ebnzdzxU
+# GGUHajiRfFGb5+9vQDzSCNSzo6tuWKCCA5owggOWMIICfqADAgECAhBMDIJe03Nd
+# gUX3NLOFwEGcMA0GCSqGSIb3DQEBCwUAMGMxCzAJBgNVBAYTAklOMSIwIAYDVQQK
+# DBlHcm96ZXQgU29mdHdhcmUgU29sdXRpb25zMTAwLgYDVQQDDCdHcm96ZXQgUE9T
+# IERldmVsb3BtZW50IFRlc3QgQ2VydGlmaWNhdGUwHhcNMjYwOTIwMDc1MzIxWhcN
+# MjcwOTIwMDgwMzIxWjBjMQswCQYDVQQGEwJJTjEiMCAGA1UECgwZR3JvemV0IFNv
+# ZnR3YXJlIFNvbHV0aW9uczEwMC4GA1UEAwwnR3JvemV0IFBPUyBEZXZlbG9wbWVu
+# dCBUZXN0IENlcnRpZmljYXRlMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+# AQEAob+jCh2aAc/m6kjK1TUZJiB7rmgPB31noqIsIQNDoUDozZkaUC/i5yILgy1H
+# f4jYJ2P0H9H23C2hLoI97Ay1PdJKdSHg0VKRE8T7tMA4QlsTwYpRgX5E5sCyR14t
+# LVo8ERl0Yv5ozq/qKFd0O05p5E7N/6F7i9JPd6Y84A7AO3Y+QBfjXuis7Gdh+JQq
+# DvLV0xYViWtT1yJhquJNYiAyQmrwcmA/CIJg8zIafDpfbGZJNUhjQqXB1rTmHo/f
+# jqwsim2JjGPlk5o+rE7KyKkY4b3NzFo18VTYW+N/vJo1X+3ZhGOJUc7/kjVJb0PW
+# 0hkBIGKu2HrhW1sPc7hy9zoAmQIDAQABo0YwRDAOBgNVHQ8BAf8EBAMCB4AwEwYD
+# VR0lBAwwCgYIKwYBBQUHAwMwHQYDVR0OBBYEFKE9drRgIFKULbU5JR71p1xEMJZD
+# MA0GCSqGSIb3DQEBCwUAA4IBAQCQlTU99EJRIfBg95E76zJfjEyLkJQUD6PVm8R4
+# 1k6LXwX36kish06wnjklR2lnX3vx6hHC/d1ZRyyDKyko2E2bPhL8tBTVKUZntB/p
+# T+OY7nLWLdVIFrRcUqg3ZNL4yTYCMgjjxSoteyic5iXksFEObAfRbl+y4nG1WDF2
+# Dw2GlqnpJ0s6TG7reW8d5MCOhbbv18xjLHYkuYsC5q+MwyfdDWwraFAu1wHmqOzf
+# vOlPF+OUen8Jhg+N23hFILY28qbWdvT0JP7XYfsKz+0nj/4+9PuwKE/EQrlXKN5k
+# 1hzlBpwWAyY6BLgVCIVooN4v4qah0dyKgUCRtjIQW6kLfBwqMYICKTCCAiUCAQEw
+# dzBjMQswCQYDVQQGEwJJTjEiMCAGA1UECgwZR3JvemV0IFNvZnR3YXJlIFNvbHV0
+# aW9uczEwMC4GA1UEAwwnR3JvemV0IFBPUyBEZXZlbG9wbWVudCBUZXN0IENlcnRp
+# ZmljYXRlAhBMDIJe03NdgUX3NLOFwEGcMA0GCWCGSAFlAwQCAQUAoIGEMBgGCisG
+# AQQBgjcCAQwxCjAIoAKAAKECgAAwGQYJKoZIhvcNAQkDMQwGCisGAQQBgjcCAQQw
+# HAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcCARUwLwYJKoZIhvcNAQkEMSIEIP6C
+# 709vsg/gDG5hZIjY+qJQSuVfbRn2eHsS6lAatUrPMA0GCSqGSIb3DQEBAQUABIIB
+# AIuK8hTQp0LOlk1GBP1npyYyd6TaSAouCPGvJfEv7MnL4T78U2vAAS1+rzHMhP1N
+# 3RW5MEnyWckxh59NQEOhcOMUSg8yg3Pr+r2In8gJzrsdqVjY7oxaPV0lQ8Qst02H
+# hk8RT2hLONmlHZk8UrzvSfREd9FEAn4iO6zFm9ogqx827EwV8MSHvMZTV7lfxGVT
+# lzvATY0nsUcffI3wnQdiKCFussqZTfL6PGFd6T4gox+tNLOOUxkR/4IxXMd3jggR
+# DZu0YVG3nd6/leWYHwZDnSHRlWObFPNMc4nNNUPXd6F/LHtVEbwcPeqAF3/Jxr7c
+# lsyji0vwRs0y42E/zOT3GbY=
+# SIG # End signature block

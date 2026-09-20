@@ -23,7 +23,13 @@ param(
 
     [switch]$SkipPublish = $false,
 
-    [string]$CompilerPath = ''
+    [string]$CompilerPath = '',
+
+    [switch]$SkipSigning = $false,
+
+    [string]$CertificateThumbprint = '',
+
+    [switch]$TestSign = $false
 )
 
 $ErrorActionPreference = 'Stop'
