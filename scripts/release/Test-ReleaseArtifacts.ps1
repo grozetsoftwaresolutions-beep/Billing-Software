@@ -329,10 +329,46 @@ foreach ($artifact in $manifest.artifacts) {
     }
 }
 
+# ==============================================================================
+# STEP 8: Audit Declared Installed Payloads & Signatures
+# ==============================================================================
+if ($manifest.payloads -and $manifest.payloads.Count -gt 0) {
+    Write-Host "`n[*] Step 8: Auditing declared installed payloads and signature evidence..." -ForegroundColor Yellow
+    
+    $requiredPayloads = @("RetailPOS.Server.exe", "RetailPOS.Client.exe")
+    $foundPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    foreach ($p in $manifest.payloads) {
+        $foundPayloads.Add($p.filename) | Out-Null
+
+        if ($p.peClassification -eq "SignWithGrozet") {
+            if ($p.authenticodeStatus -eq "NotSigned" -or [string]::IsNullOrWhiteSpace($p.authenticodeStatus)) {
+                throw "FAIL-CLOSED: Declared Grozet payload '$($p.filename)' has invalid or missing signature in manifest: $($p.authenticodeStatus)"
+            }
+            if ($Production) {
+                if ($p.authenticodeStatus -ne "Valid") {
+                    throw "FAIL-CLOSED: Production release requires Valid Authenticode signature on payload '$($p.filename)'. Got: $($p.authenticodeStatus)"
+                }
+                if (-not $p.isTimestamped) {
+                    throw "FAIL-CLOSED: Production release requires RFC 3161 timestamp on payload '$($p.filename)'."
+                }
+            }
+        }
+    }
+
+    foreach ($req in $requiredPayloads) {
+        if (-not $foundPayloads.Contains($req)) {
+            throw "FAIL-CLOSED: Manifest payloads missing mandatory component: $req"
+        }
+    }
+
+    Write-Host "    [OK] All $($manifest.payloads.Count) declared payloads verified (signatures and classifications valid)." -ForegroundColor Green
+}
+
 Write-Host "`n============================================================" -ForegroundColor Green
 Write-Host "  RELEASE VERIFICATION PASSED (ZERO DEFECTS)" -ForegroundColor Green
 Write-Host "  Package: $ReleaseDirectory" -ForegroundColor Green
-Write-Host "  Artifacts Verified: $($manifest.artifacts.Count)" -ForegroundColor Green
+Write-Host "  Artifacts Verified: $($manifest.artifacts.Count) installers, $(if ($manifest.payloads) { $manifest.payloads.Count } else { 0 }) payloads" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
 
 return $true

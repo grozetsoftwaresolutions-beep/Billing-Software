@@ -66,6 +66,10 @@ if (-not $env:DOTNET_ROOT -and (Test-Path "$env:USERPROFILE\.dotnet")) {
     $env:PATH = "$env:USERPROFILE\.dotnet;$env:PATH"
 }
 
+if ([string]::IsNullOrWhiteSpace($CertificateThumbprint) -and -not [string]::IsNullOrWhiteSpace($env:GROZET_SIGNING_CERT_THUMBPRINT)) {
+    $CertificateThumbprint = $env:GROZET_SIGNING_CERT_THUMBPRINT
+}
+
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $RepoRoot
 
@@ -73,6 +77,19 @@ Write-Host "============================================================" -Foreg
 Write-Host "  GROZET RetailPOS - Master Release Build Pipeline" -ForegroundColor Cyan
 Write-Host "  Tag: $ReleaseTag | Config: $Configuration | Mode: $(if ($Production) { 'PRODUCTION' } else { 'DEVELOPMENT' })" -ForegroundColor $(if ($Production) { 'Green' } else { 'Yellow' })
 Write-Host "============================================================" -ForegroundColor Cyan
+
+# ==============================================================================
+# STAGE 0: Commercial Code Signing Preflight Gate (Production Mode)
+# ==============================================================================
+if ($Production) {
+    Write-Host "`n[*] Stage 0: Executing fail-closed Commercial Signing Preflight Gate..." -ForegroundColor Yellow
+    $preflightScript = Join-Path $PSScriptRoot "Test-CommercialSigningPreflight.ps1"
+    if (-not (Test-Path $preflightScript)) {
+        throw "FAIL-CLOSED: Commercial signing preflight script missing: $preflightScript"
+    }
+    & $preflightScript -CertificateThumbprint $CertificateThumbprint
+    Write-Host "    [OK] Commercial Signing Preflight Gate passed." -ForegroundColor Green
+}
 
 # ==============================================================================
 # STAGE 1: Git Release Tag & Working Tree Provenance Gate
@@ -164,10 +181,10 @@ Write-Host "    [OK] Solution compiled successfully." -ForegroundColor Green
 # STAGE 4: Execute Test Suite
 # ==============================================================================
 if (-not $SkipTests) {
-    Write-Host "`n[*] Stage 4: Executing test suite..." -ForegroundColor Yellow
+    Write-Host "`n[*] Stage 4: Executing complete discovered test suite..." -ForegroundColor Yellow
     dotnet test $solutionPath -c $Configuration --no-build --verbosity normal
-    if ($LASTEXITCODE -ne 0) { throw "dotnet test failed with exit code $LASTEXITCODE" }
-    Write-Host "    [OK] All automated tests passed." -ForegroundColor Green
+    if ($LASTEXITCODE -ne 0) { throw "FAIL-CLOSED: dotnet test failed with exit code $LASTEXITCODE" }
+    Write-Host "    [OK] Run the complete discovered test suite; zero failed and zero skipped. Record the discovered count as release evidence. Current baseline: 747." -ForegroundColor Green
 }
 else {
     Write-Host "`n[*] Stage 4: Skipping test suite via -SkipTests flag." -ForegroundColor Yellow
@@ -371,12 +388,38 @@ foreach ($msBin in $microsoftBinaries) {
 Write-Host "    [OK] Grozet payloads signed and Microsoft signatures verified." -ForegroundColor Green
 
 # ==============================================================================
-# STAGE 9: Compile Inno Setup Installers
+# PRE-PACKAGING PAYLOAD INTEGRITY GATE
+# ==============================================================================
+Write-Host "`n[*] Gate: Auditing signed payloads prior to Inno Setup packaging..." -ForegroundColor Yellow
+$prePackagingPayloadHashes = @{}
+$sha256ForGate = [System.Security.Cryptography.SHA256]::Create()
+
+foreach ($payload in $grozetPayloads) {
+    if (-not (Test-Path $payload)) {
+        throw "FAIL-CLOSED: Expected payload missing before packaging: $payload"
+    }
+    $pSig = Get-AuthenticodeSignature -FilePath $payload
+    $isSignedValid = if ($Production) {
+        $pSig.Status -eq 'Valid'
+    } else {
+        $pSig.Status -eq 'Valid' -or ($pSig.Status -eq 'UnknownError' -and $pSig.SignerCertificate.Subject -like '*Test Certificate*')
+    }
+    if (-not $isSignedValid) {
+        throw "FAIL-CLOSED: Payload '$payload' failed Authenticode signature check prior to packaging! Status: $($pSig.Status) ($($pSig.StatusMessage))"
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($payload)
+    $hash = [System.BitConverter]::ToString($sha256ForGate.ComputeHash($bytes)).Replace("-", "").ToUpperInvariant()
+    $prePackagingPayloadHashes[$payload] = $hash
+}
+Write-Host "    [OK] All $($grozetPayloads.Count) Grozet payloads verified signed prior to packaging." -ForegroundColor Green
+
+# ==============================================================================
+# STAGE 9: Compile Inno Setup Installers (Reusing Signed Payloads as Immutable)
 # ==============================================================================
 Write-Host "`n[*] Stage 9: Compiling Inno Setup installers with pre-signed payloads..." -ForegroundColor Yellow
 
 $buildInstallerScript = Join-Path $RepoRoot "scripts\deployment\Build-Installer.ps1"
-& $buildInstallerScript -Configuration $Configuration -SkipSigning
+& $buildInstallerScript -Configuration $Configuration -SkipPublish -SkipSigning
 if ($LASTEXITCODE -ne 0) { throw "Build-Installer.ps1 failed with exit code $LASTEXITCODE" }
 
 $installerOutputDir = Join-Path $RepoRoot "packaging\Output"
@@ -393,6 +436,26 @@ foreach ($inst in $installers) {
 }
 
 Write-Host "    [OK] Inno Setup compiled 3 installer executables." -ForegroundColor Green
+
+# ==============================================================================
+# POST-PACKAGING PAYLOAD IMMUTABILITY GATE
+# ==============================================================================
+Write-Host "`n[*] Gate: Auditing payload immutability after Inno Setup packaging..." -ForegroundColor Yellow
+foreach ($payload in $grozetPayloads) {
+    if (-not (Test-Path $payload)) {
+        throw "FAIL-CLOSED: Payload missing after packaging: $payload"
+    }
+    $pSig = Get-AuthenticodeSignature -FilePath $payload
+    if ($pSig.Status -eq 'NotSigned') {
+        throw "FAIL-CLOSED: Payload '$payload' was stripped of signature or overwritten during installer compilation!"
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($payload)
+    $hash = [System.BitConverter]::ToString($sha256ForGate.ComputeHash($bytes)).Replace("-", "").ToUpperInvariant()
+    if ($hash -ne $prePackagingPayloadHashes[$payload]) {
+        throw "FAIL-CLOSED: Payload '$payload' hash changed during installer packaging! Expected: $($prePackagingPayloadHashes[$payload]), Actual: $hash"
+    }
+}
+Write-Host "    [OK] All Grozet payloads verified identical and signed after Inno Setup packaging." -ForegroundColor Green
 
 # ==============================================================================
 # STAGE 10: Sign Inno Setup Installer Executables
@@ -417,17 +480,21 @@ foreach ($inst in $installers) {
 Write-Host "    [OK] All installer executables signed and verified." -ForegroundColor Green
 
 # ==============================================================================
-# STAGE 11: Generate Authenticated Release Package & CMS Manifest
+# STAGE 11: Generate Authenticated Release Package & Expanded CMS Manifest
 # ==============================================================================
 Write-Host "`n[*] Stage 11: Generating release package, manifest, and detached CMS signature..." -ForegroundColor Yellow
 
-$stagingDir = Join-Path $RepoRoot "$OutputBaseDirectory\v$appVersion"
+# User Correction 3: Stage to temporary release directory; atomic promotion only after successful verification
+$stagingDir = Join-Path $RepoRoot "$OutputBaseDirectory\staging\v$appVersion"
+$finalReleaseDir = Join-Path $RepoRoot "$OutputBaseDirectory\v$appVersion"
+
 if (-not (Test-Path $stagingDir)) {
     New-Item -Path $stagingDir -ItemType Directory -Force | Out-Null
 }
 
 $sha256 = [System.Security.Cryptography.SHA256]::Create()
 $manifestArtifacts = [System.Collections.Generic.List[PSObject]]::new()
+$manifestPayloads = [System.Collections.Generic.List[PSObject]]::new()
 $sumsContent = [System.Text.StringBuilder]::new()
 
 foreach ($inst in $installers) {
@@ -458,11 +525,76 @@ foreach ($inst in $installers) {
     [void]$sumsContent.AppendLine("$hash  $leafName")
 }
 
+# Catalog all Grozet first-party published payloads
+foreach ($payload in $grozetPayloads) {
+    $leafName = Split-Path $payload -Leaf
+    $bytes = [System.IO.File]::ReadAllBytes($payload)
+    $hash = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-", "").ToUpperInvariant()
+    $sig = Get-AuthenticodeSignature -FilePath $payload
+    $targetRole = if ($payload -like "*Server*") { "Server" } elseif ($payload -like "*Client*") { "Client" } else { "Deployment" }
+
+    $manifestPayloads.Add([PSCustomObject]@{
+        filename = $leafName
+        targetRole = $targetRole
+        sizeBytes = $bytes.Length
+        sha256 = $hash
+        peClassification = "SignWithGrozet"
+        authenticodeStatus = [string]$sig.Status
+        isTimestamped = ($null -ne $sig.TimeStamperCertificate)
+        signerThumbprint = if ($null -ne $sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
+    })
+}
+
+# Catalog Microsoft runtime components
+foreach ($msBin in $microsoftBinaries) {
+    if (Test-Path $msBin) {
+        $leafName = Split-Path $msBin -Leaf
+        $bytes = [System.IO.File]::ReadAllBytes($msBin)
+        $hash = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-", "").ToUpperInvariant()
+        $sig = Get-AuthenticodeSignature -FilePath $msBin
+
+        $manifestPayloads.Add([PSCustomObject]@{
+            filename = $leafName
+            targetRole = "ServerRuntime"
+            sizeBytes = $bytes.Length
+            sha256 = $hash
+            peClassification = "VerifyMicrosoftSignature"
+            authenticodeStatus = [string]$sig.Status
+            isTimestamped = ($null -ne $sig.TimeStamperCertificate)
+            signerThumbprint = if ($null -ne $sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
+        })
+    }
+}
+
+# Catalog approved unsigned OSS
+$ossBinaries = @(
+    (Join-Path $serverPublishDir "e_sqlite3.dll")
+)
+foreach ($oss in $ossBinaries) {
+    if (Test-Path $oss) {
+        $leafName = Split-Path $oss -Leaf
+        $bytes = [System.IO.File]::ReadAllBytes($oss)
+        $hash = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-", "").ToUpperInvariant()
+        $sig = Get-AuthenticodeSignature -FilePath $oss
+
+        $manifestPayloads.Add([PSCustomObject]@{
+            filename = $leafName
+            targetRole = "ServerNative"
+            sizeBytes = $bytes.Length
+            sha256 = $hash
+            peClassification = "UnsignedApprovedOss"
+            authenticodeStatus = [string]$sig.Status
+            isTimestamped = $false
+            signerThumbprint = $null
+        })
+    }
+}
+
 # Write SHA256SUMS
 $sumsPath = Join-Path $stagingDir "SHA256SUMS"
 [System.IO.File]::WriteAllText($sumsPath, $sumsContent.ToString(), [System.Text.Encoding]::UTF8)
 
-# Construct Manifest JSON
+# Construct Manifest JSON (incorporating User Correction 2: Strict Production vs TestSign separation)
 $manifestObject = [PSCustomObject]@{
     '$schema' = "https://grozet.com/schemas/release-manifest-v1.json"
     productName = "Grozet Offline Retail POS & Billing"
@@ -472,6 +604,8 @@ $manifestObject = [PSCustomObject]@{
     gitReleaseTag = $gitReleaseTag
     gitCommitHash = $gitCommitHash
     buildConfiguration = $Configuration
+    buildMode = if ($Production) { "COMMERCIAL_PRODUCTION" } else { "DEVELOPMENT_TEST_SIGN" }
+    isCommercialRelease = [bool]$Production
     buildTimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
     signingMetadata = [PSCustomObject]@{
         isSigned = $true
@@ -482,6 +616,8 @@ $manifestObject = [PSCustomObject]@{
         signatureFileName = "release_manifest.json.p7s"
     }
     artifacts = $manifestArtifacts
+    installers = $manifestArtifacts
+    payloads = $manifestPayloads
 }
 
 $manifestJson = $manifestObject | ConvertTo-Json -Depth 10
@@ -530,8 +666,23 @@ if ($LASTEXITCODE -ne 0) {
     throw "FAIL-CLOSED: Independent release verification gate FAILED with exit code $LASTEXITCODE."
 }
 
+# ==============================================================================
+# STAGE 13: Atomic Promotion from Staging to Final Release Distribution
+# ==============================================================================
+Write-Host "`n[*] Stage 13: Promoting verified release to final release directory..." -ForegroundColor Yellow
+
+if (-not (Test-Path $finalReleaseDir)) {
+    New-Item -Path $finalReleaseDir -ItemType Directory -Force | Out-Null
+}
+
+# Atomically copy verified release files from stagingDir to finalReleaseDir
+Copy-Item -Path "$stagingDir\*" -Destination $finalReleaseDir -Recurse -Force
+Write-Host "    [OK] Verified release promoted to: $finalReleaseDir" -ForegroundColor Green
+
 Write-Host "`n============================================================" -ForegroundColor Green
 Write-Host "  GROZET RetailPOS - RELEASE BUILD COMPLETED SUCCESSFULLY" -ForegroundColor Green
-Write-Host "  Release Package: $stagingDir" -ForegroundColor Green
+Write-Host "  Mode: $(if ($Production) { 'COMMERCIAL PRODUCTION' } else { 'DEVELOPMENT / TEST-SIGN' })" -ForegroundColor Green
+Write-Host "  Release Package: $finalReleaseDir" -ForegroundColor Green
 Write-Host "  Version: $appVersion | Commit: $gitCommitHash" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
+

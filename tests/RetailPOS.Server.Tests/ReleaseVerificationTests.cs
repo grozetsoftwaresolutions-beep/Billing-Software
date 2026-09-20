@@ -537,5 +537,30 @@ public sealed class ReleaseVerificationTests
         Assert.Contains("AllowUnsignedBinaries", scriptText);
     }
 
+    [Fact]
+    public void TEST_P16_8_25_BuildInstaller_Guardrail_ProtectsSignedPayloads()
+    {
+        var buildInstallerScript = Path.Combine(RepoRoot, "scripts", "deployment", "Build-Installer.ps1");
+        Assert.True(File.Exists(buildInstallerScript), "Build-Installer.ps1 must exist");
+
+        var scriptText = File.ReadAllText(buildInstallerScript);
+        Assert.Contains("DevOnlyForceWipeSignedPayloads", scriptText);
+        Assert.Contains("Publish directory contains already-signed binaries", scriptText);
+        Assert.Contains("FAIL-CLOSED", scriptText);
+        Assert.Contains("strictly forbidden in Release mode", scriptText);
+    }
+
+    [Fact]
+    public void TEST_P16_8_26_ReleaseOrchestrator_PassesSkipPublishToBuildInstaller()
+    {
+        var newReleaseScript = Path.Combine(RepoRoot, "scripts", "release", "New-ReleaseBuild.ps1");
+        Assert.True(File.Exists(newReleaseScript), "New-ReleaseBuild.ps1 must exist");
+
+        var scriptText = File.ReadAllText(newReleaseScript);
+        Assert.Contains("-SkipPublish -SkipSigning", scriptText);
+        Assert.Contains("PRE-PACKAGING PAYLOAD INTEGRITY GATE", scriptText);
+        Assert.Contains("POST-PACKAGING PAYLOAD IMMUTABILITY GATE", scriptText);
+    }
+
     #endregion
 }

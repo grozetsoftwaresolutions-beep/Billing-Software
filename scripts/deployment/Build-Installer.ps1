@@ -29,7 +29,9 @@ param(
 
     [string]$CertificateThumbprint = '',
 
-    [switch]$TestSign = $false
+    [switch]$TestSign = $false,
+
+    [switch]$DevOnlyForceWipeSignedPayloads = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,6 +104,24 @@ $clientExe = Join-Path $clientPublishDir "RetailPOS.Client.exe"
 $needsPublish = (-not $SkipPublish) -or (-not (Test-Path $serverExe)) -or (-not (Test-Path $clientExe))
 
 if ($needsPublish) {
+    # Safety guardrail: Prevent accidental wiping of already-signed payloads
+    $executablesToCheck = @($serverExe, $clientExe)
+    foreach ($exeToCheck in $executablesToCheck) {
+        if (Test-Path $exeToCheck) {
+            $existingSig = Get-AuthenticodeSignature -FilePath $exeToCheck -ErrorAction SilentlyContinue
+            if ($existingSig -and $existingSig.Status -ne 'NotSigned') {
+                if ($DevOnlyForceWipeSignedPayloads) {
+                    if ($Configuration -eq 'Release') {
+                        throw "FAIL-CLOSED: -DevOnlyForceWipeSignedPayloads is strictly forbidden in Release mode! Refusing to destroy signed payloads."
+                    }
+                    Write-Warning "DEVELOPER OVERRIDE: Wiping signed binaries in non-release mode ($Configuration)."
+                } else {
+                    throw "FAIL-CLOSED: Publish directory contains already-signed binaries ($($existingSig.SignerCertificate.Subject) on $(Split-Path $exeToCheck -Leaf)). Build-Installer.ps1 refused to wipe and republish over signed payloads. Use -SkipPublish to package existing signed binaries."
+                }
+            }
+        }
+    }
+
     # Safe cleanup of previous publish artifacts
     if (Test-Path $serverPublishDir) {
         Write-Host "Cleaning server publish folder: $serverPublishDir"
