@@ -12,6 +12,7 @@ public sealed partial class ShellPage : Page
     private static readonly SolidColorBrush GreenBrush = new(Color.FromArgb(255, 34, 197, 94));
     private static readonly SolidColorBrush YellowBrush = new(Color.FromArgb(255, 234, 179, 8));
     private static readonly SolidColorBrush RedBrush = new(Color.FromArgb(255, 239, 68, 68));
+    private static readonly SolidColorBrush AmberBrush = new(Color.FromArgb(255, 245, 158, 11));
 
     public static ShellPage? Current { get; private set; }
 
@@ -21,6 +22,11 @@ public sealed partial class ShellPage : Page
         ViewModel.IsServerConnected
             ? GreenBrush
             : (ViewModel.IsLoading ? YellowBrush : RedBrush);
+
+    public SolidColorBrush TerminalStatusDotBrush =>
+        ViewModel.IsTerminalReady
+            ? GreenBrush
+            : AmberBrush;
 
     public ShellPage()
     {

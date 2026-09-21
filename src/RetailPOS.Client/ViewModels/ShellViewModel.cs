@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using RetailPOS.Client.Services;
+using RetailPOS.Contracts.Common;
 
 namespace RetailPOS.Client.ViewModels;
 
@@ -22,7 +23,10 @@ public sealed partial class ShellViewModel : ObservableObject
     public partial string SessionStatusText { get; set; } = "Session: Not Authenticated";
 
     [ObservableProperty]
-    public partial string TerminalStatusText { get; set; } = "Terminal: Ready";
+    public partial string TerminalStatusText { get; set; } = "Terminal: Not Enrolled";
+
+    [ObservableProperty]
+    public partial bool IsTerminalReady { get; set; }
 
     [ObservableProperty]
     public partial string ServerStatusText { get; set; } = "Server: Checking...";
@@ -51,6 +55,33 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsLoading { get; set; } = true;
 
+    public void RefreshTerminalStatus()
+    {
+        try
+        {
+            using var probeClient = new HttpClient();
+            var discoveryClient = new ServerDiscoveryClient(probeClient);
+            var enrollmentClient = new TerminalEnrollmentClient(probeClient);
+            var pairingToken = enrollmentClient.LoadPairingToken();
+
+            if (discoveryClient.SecurityState == ClientSecurityState.PinnedNormal && !string.IsNullOrWhiteSpace(pairingToken))
+            {
+                IsTerminalReady = true;
+                TerminalStatusText = "Terminal: Ready";
+            }
+            else
+            {
+                IsTerminalReady = false;
+                TerminalStatusText = "Terminal: Not Enrolled";
+            }
+        }
+        catch
+        {
+            IsTerminalReady = false;
+            TerminalStatusText = "Terminal: Not Enrolled";
+        }
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         IsLoading = true;
@@ -58,9 +89,11 @@ public sealed partial class ShellViewModel : ObservableObject
         ServerStatusText = "Server: Checking...";
         ServerEndpoint = "Probing LAN & localhost...";
 
+        RefreshTerminalStatus();
+
         try
         {
-            // 1. Attempt UDP broadcast discovery with a short timeout
+            // 1. Attempt UDP broadcast discovery with a short timeout on port 5105
             var discovered = await ServerDiscoveryClient.DiscoverServerUdpAsync(1000, cancellationToken);
             var serverUrl = discovered?.HttpsBaseUrl ?? discovered?.HttpBaseUrl;
             if (discovered != null && !string.IsNullOrWhiteSpace(serverUrl))
@@ -72,16 +105,53 @@ public sealed partial class ShellViewModel : ObservableObject
                 return;
             }
 
-            // 2. Check local server fallback at http://localhost:5000/health
+            // 2. Check local server fallback using authoritative ports (5101 HTTPS / 5100 HTTP) and /api/v1/health
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-            using var response = await httpClient.GetAsync("http://localhost:5000/health", cancellationToken);
-            if (response.IsSuccessStatusCode)
+
+            // 2a. Probe local HTTPS (port 5101)
+            var httpsBaseUrl = $"https://localhost:{WindowsServiceDeploymentSpecification.HttpsPort}";
+            try
             {
-                IsServerConnected = true;
-                ServerStatusText = "Server: Connected";
-                ServerEndpoint = "http://localhost:5000";
-                StatusMessage = "Connected to local server on port 5000.";
-                return;
+                using var httpsResponse = await httpClient.GetAsync($"{httpsBaseUrl}/api/v1/health", cancellationToken);
+                if (httpsResponse.IsSuccessStatusCode)
+                {
+                    IsServerConnected = true;
+                    ServerStatusText = "Server: Connected";
+                    ServerEndpoint = httpsBaseUrl;
+                    StatusMessage = $"Connected to local server on port {WindowsServiceDeploymentSpecification.HttpsPort} (HTTPS).";
+                    return;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // HTTPS probe failed; proceed to HTTP fallback
+            }
+
+            // 2b. Probe local HTTP (port 5100)
+            var httpBaseUrl = $"http://localhost:{WindowsServiceDeploymentSpecification.HttpPort}";
+            try
+            {
+                using var httpResponse = await httpClient.GetAsync($"{httpBaseUrl}/api/v1/health", cancellationToken);
+                if (httpResponse.IsSuccessStatusCode)
+                {
+                    IsServerConnected = true;
+                    ServerStatusText = "Server: Connected";
+                    ServerEndpoint = httpBaseUrl;
+                    StatusMessage = $"Connected to local server on port {WindowsServiceDeploymentSpecification.HttpPort} (HTTP).";
+                    return;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // HTTP probe failed; proceed to offline fallback
             }
 
             // 3. Graceful offline fallback

@@ -71,7 +71,7 @@
                     <!-- Terminal Status Pill -->
                     <Border Background="#1E293B" CornerRadius="14" Padding="12,5" BorderBrush="#334155" BorderThickness="1">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <Ellipse Width="8" Height="8" Fill="#10B981" VerticalAlignment="Center" />
+                            <Ellipse Width="8" Height="8" Fill="{x:Bind TerminalStatusDotBrush, Mode=OneWay}" VerticalAlignment="Center" />
                             <TextBlock Text="{x:Bind ViewModel.TerminalStatusText, Mode=OneWay}" Foreground="#F8FAFC" FontSize="11" FontWeight="Medium" VerticalAlignment="Center" />
                         </StackPanel>
                     </Border>
