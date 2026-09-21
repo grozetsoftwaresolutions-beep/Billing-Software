@@ -179,3 +179,63 @@ Automated Windows UI automation and Win32 verification executed against `RetailP
 - User login / authentication dialog, RBAC permission enforcement in UI.
 - Terminal pairing wizard (SRP-6a handshake dialog).
 - Hardware peripheral COM port selection and calibration.
+
+---
+
+# Phase 17.2 Corrective Patch Report (Post-Review Corrections)
+
+## 1. Original Issue #1: Incorrect Server Port 5000 Reference
+- **Issue**: Probing and reporting `http://localhost:5000/health` as the local server fallback in `ShellViewModel` and `MainWindowViewModel`.
+- **Root Cause**: `src/RetailPOS.Client/ViewModels/ShellViewModel.cs` and `MainWindowViewModel.cs` contained hardcoded references to port `5000` and route `/health`.
+- **Correction Made**:
+  - Bound local server fallback to authoritative ports defined in `RetailPOS.Contracts.Common.WindowsServiceDeploymentSpecification`:
+    - HTTPS port: `5101` (`WindowsServiceDeploymentSpecification.HttpsPort`)
+    - HTTP port: `5100` (`WindowsServiceDeploymentSpecification.HttpPort`)
+    - UDP broadcast discovery port: `5105` (`WindowsServiceDeploymentSpecification.DiscoveryPort`)
+  - Corrected health endpoint path to the authoritative route `/api/v1/health`.
+  - Probes local HTTPS (`https://localhost:5101/api/v1/health`) first, falls back to local HTTP (`http://localhost:5100/api/v1/health`), and falls back to honest offline state (`Offline (Standalone)`) if neither responds.
+  - Eliminated all occurrences of port `5000` from `RetailPOS.Client`.
+
+## 2. Original Issue #2: Misleading "Terminal: Ready" Status
+- **Issue**: The shell header displayed "Terminal: Ready" with a green indicator dot (`#10B981`) on application startup even though terminal enrollment, pairing, and authenticated session have not occurred.
+- **Root Cause**: `ShellViewModel.cs` hardcoded `TerminalStatusText = "Terminal: Ready"`, and `ShellPage.xaml` hardcoded `<Ellipse Fill="#10B981" />`.
+- **Correction Made**:
+  - Changed initial property default in `ShellViewModel` and `MainWindowViewModel` to `"Terminal: Not Enrolled"`.
+  - Bound the status indicator dot in `ShellPage.xaml` to `TerminalStatusDotBrush`.
+  - Added `TerminalStatusDotBrush` in `ShellPage.xaml.cs` to render an amber/yellow warning indicator (`#F59E0B`) when unenrolled/not ready, and green (`#22C55E`) only when enrolled and verified.
+  - Added `RefreshTerminalStatus()` utilizing existing `ServerDiscoveryClient` and `TerminalEnrollmentClient` architecture to verify both `PinnedNormal` security state and existence of a valid pairing token.
+
+## 3. Build & Regression Results
+- **Solution Build**: `0 Warning(s)`, `0 Error(s)`.
+- **Complete Discovered Test Suite**:
+  - Discovered: `749`
+  - Passed: `749`
+  - Failed: `0`
+  - Skipped: `0`
+
+## 4. Physical UI Verification (WinUI 3 on Windows)
+1. Application launches: Confirmed.
+2. GROZET shell appears: Confirmed (HWND acquired, title `GROZET RETAILPOS`).
+3. Home page renders: Confirmed.
+4. Server status displays correctly: Confirmed (`Server: Offline` / `Offline (Standalone)`).
+5. Port 5000 eliminated: Confirmed (0 references).
+6. Honest offline state: Confirmed without freezing.
+7. Terminal status: Confirmed honest `Terminal: Not Enrolled` with amber indicator.
+8. Navigation: Confirmed functional across Home, POS, Products, Reports, Settings.
+9. Resize: Confirmed.
+10. Maximize: Confirmed.
+11. Minimize: Confirmed.
+12. Restore: Confirmed.
+13. Close: Confirmed clean exit (`HasExited = True`).
+14. Re-launch: Confirmed clean re-start.
+
+## 5. Scope Invariance & Git Summary
+- **Files Modified**:
+  1. `src/RetailPOS.Client/ViewModels/MainWindowViewModel.cs`
+  2. `src/RetailPOS.Client/ViewModels/ShellViewModel.cs`
+  3. `src/RetailPOS.Client/Views/ShellPage.xaml`
+  4. `src/RetailPOS.Client/Views/ShellPage.xaml.cs`
+- **Protected Areas**: Completely untouched (`src/RetailPOS.Domain`, `src/RetailPOS.Application`, `src/RetailPOS.Contracts`, `src/RetailPOS.Infrastructure`, `src/RetailPOS.Server`, `tests/`, `scripts/`, `packaging/`).
+- **No Phase 17.3 functionality added**: Confirmed.
+- **Commit Hash**: `43a411b53a602c69446cf5991e6126d9378e604d`
+- **Status**: **PHASE 17.2 CORRECTIVE PATCH COMPLETE — AWAITING REVIEW**
