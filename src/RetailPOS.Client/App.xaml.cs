@@ -66,6 +66,61 @@ public partial class App : Microsoft.UI.Xaml.Application
             {
                 RetailPOS.Client.ViewModels.LoginViewModel.ForceInitialPinMode = true;
             }
+            else if (arg.Equals("--demo-pos", StringComparison.OrdinalIgnoreCase))
+            {
+                var response = new RetailPOS.Contracts.Auth.LoginResponse(
+                    "demo-cashier-token",
+                    Guid.NewGuid(),
+                    "cashier1",
+                    "Sarah Jenkins",
+                    RetailPOS.Domain.Enums.RoleType.Cashier,
+                    Guid.NewGuid(),
+                    DateTime.UtcNow.AddHours(8));
+                RetailPOS.Client.Services.ClientSessionManager.Instance.SetActiveSession(response);
+                RetailPOS.Client.Views.ShellPage.ForceInitialNavigationTag = "POS";
+            }
+            else if (arg.Equals("--demo-pos-cart", StringComparison.OrdinalIgnoreCase))
+            {
+                var response = new RetailPOS.Contracts.Auth.LoginResponse(
+                    "demo-cashier-token",
+                    Guid.NewGuid(),
+                    "cashier1",
+                    "Sarah Jenkins",
+                    RetailPOS.Domain.Enums.RoleType.Cashier,
+                    Guid.NewGuid(),
+                    DateTime.UtcNow.AddHours(8));
+                RetailPOS.Client.Services.ClientSessionManager.Instance.SetActiveSession(response);
+                RetailPOS.Client.Views.ShellPage.ForceInitialNavigationTag = "POS";
+                RetailPOS.Client.Views.PosPage.InitialDemoMode = "cart";
+            }
+            else if (arg.Equals("--demo-pos-payment", StringComparison.OrdinalIgnoreCase))
+            {
+                var response = new RetailPOS.Contracts.Auth.LoginResponse(
+                    "demo-cashier-token",
+                    Guid.NewGuid(),
+                    "cashier1",
+                    "Sarah Jenkins",
+                    RetailPOS.Domain.Enums.RoleType.Cashier,
+                    Guid.NewGuid(),
+                    DateTime.UtcNow.AddHours(8));
+                RetailPOS.Client.Services.ClientSessionManager.Instance.SetActiveSession(response);
+                RetailPOS.Client.Views.ShellPage.ForceInitialNavigationTag = "POS";
+                RetailPOS.Client.Views.PosPage.InitialDemoMode = "payment";
+            }
+            else if (arg.Equals("--demo-pos-checkout", StringComparison.OrdinalIgnoreCase))
+            {
+                var response = new RetailPOS.Contracts.Auth.LoginResponse(
+                    "demo-cashier-token",
+                    Guid.NewGuid(),
+                    "cashier1",
+                    "Sarah Jenkins",
+                    RetailPOS.Domain.Enums.RoleType.Cashier,
+                    Guid.NewGuid(),
+                    DateTime.UtcNow.AddHours(8));
+                RetailPOS.Client.Services.ClientSessionManager.Instance.SetActiveSession(response);
+                RetailPOS.Client.Views.ShellPage.ForceInitialNavigationTag = "POS";
+                RetailPOS.Client.Views.PosPage.InitialDemoMode = "checkout";
+            }
         }
 
         _mainWindow = new MainWindow();

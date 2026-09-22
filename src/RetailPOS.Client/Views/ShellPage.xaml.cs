@@ -18,6 +18,7 @@ public sealed partial class ShellPage : Page
     private static readonly SolidColorBrush AmberBrush = new(Color.FromArgb(255, 245, 158, 11));
 
     public static ShellPage? Current { get; private set; }
+    public static string? ForceInitialNavigationTag { get; set; }
 
     public ShellViewModel ViewModel { get; }
 
@@ -89,9 +90,16 @@ public sealed partial class ShellPage : Page
             ApplyRolePermissions();
             if (ContentFrame.Content == null)
             {
-                ContentFrame.Navigate(typeof(HomePage));
-                ViewModel.CurrentModuleName = "Home / Dashboard";
-                NavView.SelectedItem = NavHome;
+                if (!string.IsNullOrEmpty(ForceInitialNavigationTag))
+                {
+                    NavigateTo(ForceInitialNavigationTag);
+                }
+                else
+                {
+                    ContentFrame.Navigate(typeof(HomePage));
+                    ViewModel.CurrentModuleName = "Home / Dashboard";
+                    NavView.SelectedItem = NavHome;
+                }
             }
         }
         else
@@ -163,7 +171,7 @@ public sealed partial class ShellPage : Page
                 break;
 
             case "POS":
-                ContentFrame.Navigate(typeof(PosPlaceholderPage));
+                ContentFrame.Navigate(typeof(PosPage));
                 ViewModel.CurrentModuleName = "POS & Billing";
                 SelectMenuItemByTag("POS");
                 break;

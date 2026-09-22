@@ -11,6 +11,10 @@ using Xunit;
 
 namespace RetailPOS.Client.Tests;
 
+[CollectionDefinition("ClientSessionTests", DisableParallelization = true)]
+public class ClientSessionTestCollectionDefinition { }
+
+[Collection("ClientSessionTests")]
 public class ClientAuthenticationTests
 {
     [Fact]
