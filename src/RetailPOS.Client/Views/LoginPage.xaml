@@ -1,0 +1,282 @@
+<Page
+    x:Class="RetailPOS.Client.Views.LoginPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d"
+    Background="#0F172A">
+
+    <Grid>
+        <!-- Background subtle decorative glow/pattern -->
+        <Grid.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#090D16" Offset="0.0" />
+                <GradientStop Color="#0F172A" Offset="0.4" />
+                <GradientStop Color="#1E293B" Offset="1.0" />
+            </LinearGradientBrush>
+        </Grid.Background>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="880" Margin="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="360" />
+                    <ColumnDefinition Width="440" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Branding & Info Card -->
+                <Border Grid.Column="0" Background="#1E293B" CornerRadius="16,0,0,16" Padding="28,28" BorderBrush="#334155" BorderThickness="1,1,0,1">
+                <StackPanel VerticalAlignment="Center" Spacing="24">
+                    <!-- Brand Icon & Name -->
+                    <StackPanel Spacing="12">
+                        <Border Width="56" Height="56" Background="#0284C7" CornerRadius="14" HorizontalAlignment="Left">
+                            <TextBlock Text="G" Foreground="White" FontSize="30" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="GROZET RETAILPOS" Foreground="White" FontSize="22" FontWeight="Bold" />
+                        <TextBlock Text="Fast, Secure, Offline-First Point of Sale &amp; Retail Engine" Foreground="#94A3B8" FontSize="13" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <Rectangle Height="1" Fill="#334155" HorizontalAlignment="Stretch" />
+
+                    <!-- Key Security Invariants -->
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="SECURITY &amp; ACCESS" Foreground="#64748B" FontSize="11" FontWeight="Bold" CharacterSpacing="100" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Border Width="28" Height="28" Background="#0F172A" CornerRadius="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE72E;" FontSize="13" Foreground="#38BDF8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="HTTPS Port 5101 Only" Foreground="#F1F5F9" FontSize="12" FontWeight="SemiBold" />
+                                <TextBlock Text="Enforced encrypted credential transit" Foreground="#94A3B8" FontSize="11" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Border Width="28" Height="28" Background="#0F172A" CornerRadius="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE730;" FontSize="13" Foreground="#10B981" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Role-Separated Authentication" Foreground="#F1F5F9" FontSize="12" FontWeight="SemiBold" />
+                                <TextBlock Text="Cashier fast PIN vs. Management Password" Foreground="#94A3B8" FontSize="11" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Border Width="28" Height="28" Background="#0F172A" CornerRadius="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8B7;" FontSize="13" Foreground="#F59E0B" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Lockout &amp; Rate-Limit Protected" Foreground="#F1F5F9" FontSize="12" FontWeight="SemiBold" />
+                                <TextBlock Text="5-attempt counter lockout with anti-enumeration" Foreground="#94A3B8" FontSize="11" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Rectangle Height="1" Fill="#334155" HorizontalAlignment="Stretch" />
+
+                    <!-- Environment Notice -->
+                    <Border Background="#0F172A" CornerRadius="8" Padding="12,10" BorderBrush="#334155" BorderThickness="1">
+                        <TextBlock Text="{x:Bind ViewModel.TerminalNotice, Mode=OneWay}" Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Right Login Form Card -->
+            <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="0,16,16,0" Padding="32,24" BorderBrush="#CBD5E1" BorderThickness="0,1,1,1">
+                <StackPanel Spacing="16">
+                    <!-- Form Title & Mode Switcher -->
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Sign In to Counter" Foreground="#0F172A" FontSize="20" FontWeight="Bold" />
+                        <TextBlock Text="Select your role mode to access terminal functions." Foreground="#64748B" FontSize="12" />
+                    </StackPanel>
+
+                    <!-- Auth Mode Selector Tabs -->
+                    <Grid Background="#F1F5F9" CornerRadius="8" Padding="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- PIN Mode Button -->
+                        <Button
+                            x:Name="PinModeButton"
+                            Grid.Column="0"
+                            Click="OnPinModeClicked"
+                            HorizontalAlignment="Stretch"
+                            CornerRadius="6"
+                            BorderThickness="0"
+                            Padding="12,8">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background" Value="Transparent" />
+                                </Style>
+                            </Button.Style>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE790;" FontSize="13" Foreground="#0284C7" />
+                                <TextBlock Text="Cashier PIN" FontWeight="SemiBold" FontSize="12" Foreground="#0F172A" />
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Password Mode Button -->
+                        <Button
+                            x:Name="PasswordModeButton"
+                            Grid.Column="1"
+                            Click="OnPasswordModeClicked"
+                            HorizontalAlignment="Stretch"
+                            CornerRadius="6"
+                            BorderThickness="0"
+                            Padding="12,8">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background" Value="Transparent" />
+                                </Style>
+                            </Button.Style>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE8D7;" FontSize="13" Foreground="#64748B" />
+                                <TextBlock Text="Management Password" FontWeight="SemiBold" FontSize="12" Foreground="#64748B" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- Error Alert Box -->
+                    <Border
+                        x:Name="ErrorAlertBox"
+                        Visibility="{x:Bind ErrorVisibility, Mode=OneWay}"
+                        Background="#FEF2F2"
+                        BorderBrush="#FCA5A5"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12,10">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon Glyph="&#xE783;" FontSize="14" Foreground="#DC2626" VerticalAlignment="Center" />
+                            <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" Foreground="#991B1B" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ================= CASHIER PIN FORM ================= -->
+                    <StackPanel x:Name="PinFormPanel" Visibility="{x:Bind PinModeVisibility, Mode=OneWay}" Spacing="16">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Cashier Username" Foreground="#334155" FontSize="12" FontWeight="SemiBold" />
+                            <TextBox
+                                x:Name="PinUsernameInput"
+                                Text="{x:Bind ViewModel.Username, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                PlaceholderText="e.g. cashier1"
+                                CornerRadius="6"
+                                Padding="12,10" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Counter PIN (4–6 digits)" Foreground="#334155" FontSize="12" FontWeight="SemiBold" />
+                            <PasswordBox
+                                x:Name="PinInput"
+                                PlaceholderText="••••"
+                                MaxLength="8"
+                                PasswordRevealMode="Hidden"
+                                KeyDown="OnPinInputKeyDown"
+                                CornerRadius="6"
+                                Padding="12,10" />
+                        </StackPanel>
+
+                        <!-- PIN Numeric Touch Keypad -->
+                        <Grid RowSpacing="6" ColumnSpacing="6" HorizontalAlignment="Center" Width="260">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="40" />
+                                <RowDefinition Height="40" />
+                                <RowDefinition Height="40" />
+                                <RowDefinition Height="40" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Button Grid.Row="0" Grid.Column="0" Content="1" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+                            <Button Grid.Row="0" Grid.Column="1" Content="2" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+                            <Button Grid.Row="0" Grid.Column="2" Content="3" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+
+                            <Button Grid.Row="1" Grid.Column="0" Content="4" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+                            <Button Grid.Row="1" Grid.Column="1" Content="5" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+                            <Button Grid.Row="1" Grid.Column="2" Content="6" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+
+                            <Button Grid.Row="2" Grid.Column="0" Content="7" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+                            <Button Grid.Row="2" Grid.Column="1" Content="8" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+                            <Button Grid.Row="2" Grid.Column="2" Content="9" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+
+                            <Button Grid.Row="3" Grid.Column="0" Content="C" Click="OnKeypadClearClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="14" FontWeight="SemiBold" Background="#FEE2E2" Foreground="#DC2626" BorderBrush="#FECACA" />
+                            <Button Grid.Row="3" Grid.Column="1" Content="0" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="15" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#E2E8F0" />
+                            <Button Grid.Row="3" Grid.Column="2" Click="OnKeypadBackspaceClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" Background="#F1F5F9" BorderBrush="#E2E8F0">
+                                <FontIcon Glyph="&#xE750;" FontSize="13" Foreground="#475569" />
+                            </Button>
+                        </Grid>
+
+                        <Button
+                            x:Name="PinSubmitButton"
+                            Click="OnPinSubmitClicked"
+                            IsEnabled="{x:Bind SubmitEnabled, Mode=OneWay}"
+                            HorizontalAlignment="Stretch"
+                            Background="#0284C7"
+                            Foreground="White"
+                            CornerRadius="8"
+                            Padding="16,12"
+                            BorderThickness="0">
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" Width="16" Height="16" Foreground="White" Visibility="{x:Bind LoadingVisibility, Mode=OneWay}" />
+                                <TextBlock Text="Sign In with PIN" FontWeight="Bold" FontSize="13" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- ================= MANAGEMENT PASSWORD FORM ================= -->
+                    <StackPanel x:Name="PasswordFormPanel" Visibility="{x:Bind PasswordModeVisibility, Mode=OneWay}" Spacing="16">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Manager / Admin Username" Foreground="#334155" FontSize="12" FontWeight="SemiBold" />
+                            <TextBox
+                                x:Name="PasswordUsernameInput"
+                                Text="{x:Bind ViewModel.Username, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                PlaceholderText="e.g. admin or manager"
+                                CornerRadius="6"
+                                Padding="12,10" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Account Password" Foreground="#334155" FontSize="12" FontWeight="SemiBold" />
+                            <PasswordBox
+                                x:Name="PasswordInput"
+                                PlaceholderText="Enter password"
+                                KeyDown="OnPasswordInputKeyDown"
+                                CornerRadius="6"
+                                Padding="12,10" />
+                        </StackPanel>
+
+                        <Border Background="#F8FAFC" CornerRadius="8" Padding="12,10" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72D;" FontSize="12" Foreground="#64748B" VerticalAlignment="Center" />
+                                <TextBlock Text="Management roles (Owner, Admin, Manager) use password credentials." Foreground="#64748B" FontSize="11" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Button
+                            x:Name="PasswordSubmitButton"
+                            Click="OnPasswordSubmitClicked"
+                            IsEnabled="{x:Bind SubmitEnabled, Mode=OneWay}"
+                            HorizontalAlignment="Stretch"
+                            Background="#0284C7"
+                            Foreground="White"
+                            CornerRadius="8"
+                            Padding="16,12"
+                            BorderThickness="0">
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" Width="16" Height="16" Foreground="White" Visibility="{x:Bind LoadingVisibility, Mode=OneWay}" />
+                                <TextBlock Text="Sign In with Password" FontWeight="Bold" FontSize="13" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+        </ScrollViewer>
+    </Grid>
+</Page>

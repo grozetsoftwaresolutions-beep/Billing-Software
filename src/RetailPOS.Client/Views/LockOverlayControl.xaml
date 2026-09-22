@@ -1,0 +1,158 @@
+<UserControl
+    x:Class="RetailPOS.Client.Views.LockOverlayControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d">
+
+    <!-- Semi-transparent backdrop that blocks all underlying interaction -->
+    <Grid Background="#E6090D16">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Border
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Width="380"
+                Margin="12"
+                Background="#1E293B"
+                BorderBrush="#334155"
+                BorderThickness="1"
+                CornerRadius="16"
+                Padding="24,18">
+                
+                <StackPanel Spacing="12">
+                    <!-- Header Icon & Status -->
+                    <StackPanel Spacing="6" HorizontalAlignment="Center">
+                        <Border Width="40" Height="40" Background="#F59E0B" CornerRadius="20" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE72E;" FontSize="18" Foreground="#0F172A" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="Terminal Locked" Foreground="White" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" />
+                        <TextBlock Text="Active session preserved. Enter your PIN to resume." Foreground="#94A3B8" FontSize="11" HorizontalAlignment="Center" TextAlignment="Center" />
+                    </StackPanel>
+
+                <!-- Active Operator Info Card -->
+                <Border Background="#0F172A" CornerRadius="10" Padding="14,12" BorderBrush="#334155" BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Width="36" Height="36" Background="#334155" CornerRadius="18" VerticalAlignment="Center" Margin="0,0,12,0">
+                            <FontIcon Glyph="&#xE77B;" FontSize="16" Foreground="#38BDF8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.FullName, Mode=OneWay}" Foreground="White" FontSize="13" FontWeight="SemiBold" />
+                            <TextBlock Text="{x:Bind ViewModel.Username, Mode=OneWay}" Foreground="#94A3B8" FontSize="11" />
+                        </StackPanel>
+
+                        <Border Grid.Column="2" Background="#1E293B" CornerRadius="6" Padding="8,4" VerticalAlignment="Center" BorderBrush="#334155" BorderThickness="1">
+                            <TextBlock Text="{x:Bind ViewModel.Role, Mode=OneWay}" Foreground="#38BDF8" FontSize="10" FontWeight="Bold" />
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Error Alert Box -->
+                <Border
+                    x:Name="ErrorAlertBox"
+                    Visibility="{x:Bind ErrorVisibility, Mode=OneWay}"
+                    Background="#3B1219"
+                    BorderBrush="#7F1D1D"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12,8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE783;" FontSize="13" Foreground="#EF4444" VerticalAlignment="Center" />
+                        <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" Foreground="#FCA5A5" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- PIN Entry Box -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Unlock PIN" Foreground="#CBD5E1" FontSize="12" FontWeight="SemiBold" />
+                    <PasswordBox
+                        x:Name="LockPinInput"
+                        PlaceholderText="••••"
+                        MaxLength="8"
+                        PasswordRevealMode="Hidden"
+                        KeyDown="OnLockPinKeyDown"
+                        CornerRadius="6"
+                        Padding="12,10" />
+                </StackPanel>
+
+                <!-- Numeric Touch Keypad -->
+                <Grid RowSpacing="5" ColumnSpacing="6" HorizontalAlignment="Center" Width="230">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="30" />
+                        <RowDefinition Height="30" />
+                        <RowDefinition Height="30" />
+                        <RowDefinition Height="30" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Row="0" Grid.Column="0" Content="1" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+                    <Button Grid.Row="0" Grid.Column="1" Content="2" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+                    <Button Grid.Row="0" Grid.Column="2" Content="3" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+
+                    <Button Grid.Row="1" Grid.Column="0" Content="4" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+                    <Button Grid.Row="1" Grid.Column="1" Content="5" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+                    <Button Grid.Row="1" Grid.Column="2" Content="6" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+
+                    <Button Grid.Row="2" Grid.Column="0" Content="7" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+                    <Button Grid.Row="2" Grid.Column="1" Content="8" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+                    <Button Grid.Row="2" Grid.Column="2" Content="9" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+
+                    <Button Grid.Row="3" Grid.Column="0" Content="C" Click="OnKeypadClearClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="12" FontWeight="SemiBold" Background="#3B1219" Foreground="#EF4444" BorderBrush="#7F1D1D" />
+                    <Button Grid.Row="3" Grid.Column="1" Content="0" Click="OnKeypadDigitClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" FontSize="13" FontWeight="SemiBold" Background="#0F172A" Foreground="White" BorderBrush="#334155" />
+                    <Button Grid.Row="3" Grid.Column="2" Click="OnKeypadBackspaceClicked" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" CornerRadius="6" Background="#0F172A" BorderBrush="#334155">
+                        <FontIcon Glyph="&#xE750;" FontSize="11" Foreground="#CBD5E1" />
+                    </Button>
+                </Grid>
+
+                <!-- Actions: Unlock Button & Switch User Button -->
+                <StackPanel Spacing="8">
+                    <Button
+                        x:Name="UnlockButton"
+                        Click="OnUnlockClicked"
+                        IsEnabled="{x:Bind SubmitEnabled, Mode=OneWay}"
+                        HorizontalAlignment="Stretch"
+                        Background="#0284C7"
+                        Foreground="White"
+                        CornerRadius="8"
+                        Padding="14,8"
+                        BorderThickness="0">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}" Width="14" Height="14" Foreground="White" Visibility="{x:Bind LoadingVisibility, Mode=OneWay}" />
+                            <TextBlock Text="Unlock Terminal" FontWeight="Bold" FontSize="12" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button
+                        x:Name="SwitchUserButton"
+                        Click="OnSwitchUserClicked"
+                        IsEnabled="{x:Bind SubmitEnabled, Mode=OneWay}"
+                        HorizontalAlignment="Stretch"
+                        Background="Transparent"
+                        Foreground="#94A3B8"
+                        BorderBrush="#334155"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="14,6">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE7E8;" FontSize="11" Foreground="#94A3B8" />
+                            <TextBlock Text="Switch User / Log Out" FontSize="11" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -10,6 +10,8 @@ namespace RetailPOS.Client.ViewModels;
 
 public sealed partial class ShellViewModel : ObservableObject
 {
+    private readonly AuthenticationClient _authClient = new();
+
     [ObservableProperty]
     public partial string AppTitle { get; set; } = "GROZET RETAILPOS";
 
@@ -21,6 +23,12 @@ public sealed partial class ShellViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string SessionStatusText { get; set; } = "Session: Not Authenticated";
+
+    [ObservableProperty]
+    public partial bool IsUserAuthenticated { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsSessionLocked { get; set; }
 
     [ObservableProperty]
     public partial string TerminalStatusText { get; set; } = "Terminal: Not Enrolled";
@@ -54,6 +62,85 @@ public sealed partial class ShellViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool IsLoading { get; set; } = true;
+
+    public ShellViewModel()
+    {
+        ClientSessionManager.Instance.StateChanged += OnSessionStateChanged;
+        UpdateSessionPresentation(ClientSessionManager.Instance.State);
+    }
+
+    private void OnSessionStateChanged(ClientSessionState state)
+    {
+        UpdateSessionPresentation(state);
+    }
+
+    private void UpdateSessionPresentation(ClientSessionState state)
+    {
+        var session = ClientSessionManager.Instance;
+        switch (state)
+        {
+            case ClientSessionState.Active:
+                SessionStatusText = $"Session: {session.CurrentFullName ?? session.CurrentUsername} ({session.CurrentRole})";
+                IsUserAuthenticated = true;
+                IsSessionLocked = false;
+                break;
+
+            case ClientSessionState.Locked:
+                SessionStatusText = $"Session Locked ({session.CurrentUsername})";
+                IsUserAuthenticated = true;
+                IsSessionLocked = true;
+                break;
+
+            case ClientSessionState.Expired:
+                SessionStatusText = "Session: Expired";
+                IsUserAuthenticated = false;
+                IsSessionLocked = false;
+                break;
+
+            case ClientSessionState.NotAuthenticated:
+            default:
+                SessionStatusText = "Session: Not Authenticated";
+                IsUserAuthenticated = false;
+                IsSessionLocked = false;
+                break;
+        }
+    }
+
+    public async Task LockAsync(CancellationToken cancellationToken = default)
+    {
+        var token = ClientSessionManager.Instance.CurrentToken;
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            try
+            {
+                await _authClient.LockSessionAsync(token, cancellationToken);
+            }
+            catch
+            {
+                // Best-effort server lock notification
+            }
+        }
+
+        ClientSessionManager.Instance.TransitionToLocked();
+    }
+
+    public async Task LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        var token = ClientSessionManager.Instance.CurrentToken;
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            try
+            {
+                await _authClient.LogoutAsync(token, cancellationToken);
+            }
+            catch
+            {
+                // Best-effort remote revocation
+            }
+        }
+
+        ClientSessionManager.Instance.ClearSession(ClientSessionState.NotAuthenticated);
+    }
 
     public void RefreshTerminalStatus()
     {

@@ -5,6 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:RetailPOS.Client.ViewModels"
+    xmlns:local="using:RetailPOS.Client.Views"
     mc:Ignorable="d"
     Background="#F1F5F9">
 
@@ -50,15 +51,49 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Right: Session & Status Badges -->
+                <!-- Right: Session & Status Badges + Lock/Logout Controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <!-- Session Status (No fake logged-in user, ready for auth phase) -->
+                    <!-- Session Status -->
                     <Border Background="#1E293B" CornerRadius="14" Padding="12,5" BorderBrush="#334155" BorderThickness="1">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                             <FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center" />
                             <TextBlock Text="{x:Bind ViewModel.SessionStatusText, Mode=OneWay}" Foreground="#CBD5E1" FontSize="11" FontWeight="Medium" VerticalAlignment="Center" />
                         </StackPanel>
                     </Border>
+
+                    <!-- Lock Session Button (Active when authenticated) -->
+                    <Button
+                        x:Name="HeaderLockButton"
+                        Visibility="{x:Bind AuthenticatedVisibility, Mode=OneWay}"
+                        Click="OnHeaderLockClicked"
+                        ToolTipService.ToolTip="Lock Terminal (Preserves active session)"
+                        Background="#1E293B"
+                        BorderBrush="#334155"
+                        BorderThickness="1"
+                        CornerRadius="14"
+                        Padding="10,5">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="#F59E0B" />
+                            <TextBlock Text="Lock" Foreground="#F8FAFC" FontSize="11" FontWeight="Medium" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Log Out Button (Active when authenticated) -->
+                    <Button
+                        x:Name="HeaderLogoutButton"
+                        Visibility="{x:Bind AuthenticatedVisibility, Mode=OneWay}"
+                        Click="OnHeaderLogoutClicked"
+                        ToolTipService.ToolTip="Log Out"
+                        Background="#1E293B"
+                        BorderBrush="#334155"
+                        BorderThickness="1"
+                        CornerRadius="14"
+                        Padding="10,5">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE7E8;" FontSize="11" Foreground="#EF4444" />
+                            <TextBlock Text="Log Out" Foreground="#F8FAFC" FontSize="11" FontWeight="Medium" />
+                        </StackPanel>
+                    </Button>
 
                     <!-- Server Connection Status Pill -->
                     <Border Background="#1E293B" CornerRadius="14" Padding="12,5" BorderBrush="#334155" BorderThickness="1">
@@ -79,10 +114,11 @@
             </Grid>
         </Border>
 
-        <!-- Main Body: NavigationView + Content Frame -->
+        <!-- Main Body: Navigation View (When Authenticated) -->
         <NavigationView
             x:Name="NavView"
             Grid.Row="1"
+            Visibility="{x:Bind AuthenticatedVisibility, Mode=OneWay}"
             PaneDisplayMode="Left"
             OpenPaneLength="220"
             CompactPaneLength="48"
@@ -93,16 +129,22 @@
             Background="#F8FAFC">
 
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Home" Tag="Home" Icon="Home" />
-                <NavigationViewItem Content="POS &amp; Billing" Tag="POS" Icon="Shop" />
-                <NavigationViewItem Content="Products &amp; Stock" Tag="Products" Icon="AllApps" />
-                <NavigationViewItem Content="Reports" Tag="Reports" Icon="Document" />
+                <NavigationViewItem x:Name="NavHome" Content="Home" Tag="Home" Icon="Home" />
+                <NavigationViewItem x:Name="NavPos" Content="POS &amp; Billing" Tag="POS" Icon="Shop" />
+                <NavigationViewItem x:Name="NavProducts" Content="Products &amp; Stock" Tag="Products" Icon="AllApps" />
+                <NavigationViewItem x:Name="NavReports" Content="Reports" Tag="Reports" Icon="Document" />
             </NavigationView.MenuItems>
 
             <NavigationView.Content>
                 <Frame x:Name="ContentFrame" />
             </NavigationView.Content>
         </NavigationView>
+
+        <!-- Main Body: Login Host Frame (When Unauthenticated) -->
+        <Frame
+            x:Name="LoginHostFrame"
+            Grid.Row="1"
+            Visibility="{x:Bind UnauthenticatedVisibility, Mode=OneWay}" />
 
         <!-- Bottom Application Status Bar -->
         <Border Grid.Row="2" Background="#E2E8F0" Padding="20, 8" BorderBrush="#CBD5E1" BorderThickness="0,1,0,0">
@@ -123,5 +165,13 @@
                 <TextBlock Grid.Column="2" Text="Windows 10/11 x64 • .NET 10 • Presentation Client Only" Foreground="#64748B" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center" />
             </Grid>
         </Border>
+
+        <!-- Lock Modal Overlay (Spanning Full Window, Topmost Z-Index) -->
+        <local:LockOverlayControl
+            x:Name="LockOverlay"
+            Grid.Row="0"
+            Grid.RowSpan="3"
+            Canvas.ZIndex="999"
+            Visibility="{x:Bind LockOverlayVisibility, Mode=OneWay}" />
     </Grid>
 </Page>

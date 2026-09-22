@@ -2,7 +2,10 @@ using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using RetailPOS.Client.Services;
 using RetailPOS.Client.ViewModels;
+using RetailPOS.Domain.Enums;
+using RetailPOS.Domain.Security;
 using Windows.UI;
 
 namespace RetailPOS.Client.Views;
@@ -28,26 +31,107 @@ public sealed partial class ShellPage : Page
             ? GreenBrush
             : AmberBrush;
 
+    public Visibility AuthenticatedVisibility =>
+        ViewModel.IsUserAuthenticated ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility UnauthenticatedVisibility =>
+        !ViewModel.IsUserAuthenticated ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility LockOverlayVisibility =>
+        ViewModel.IsSessionLocked ? Visibility.Visible : Visibility.Collapsed;
+
     public ShellPage()
     {
         Current = this;
         ViewModel = new ShellViewModel();
         this.InitializeComponent();
 
-        ViewModel.PropertyChanged += (_, _) =>
+        ViewModel.PropertyChanged += (_, e) =>
         {
-            this.Bindings.Update();
+            DispatcherQueue?.TryEnqueue(() =>
+            {
+                this.Bindings.Update();
+
+                if (e.PropertyName == nameof(ViewModel.IsUserAuthenticated))
+                {
+                    HandleAuthStateChanged();
+                }
+                else if (e.PropertyName == nameof(ViewModel.IsSessionLocked))
+                {
+                    if (ViewModel.IsSessionLocked)
+                    {
+                        LockOverlay.PrepareForLock();
+                    }
+                }
+            });
         };
+
+        ClientSessionManager.Instance.StateChanged += OnSessionStateChanged;
+    }
+
+    private void OnSessionStateChanged(ClientSessionState state)
+    {
+        DispatcherQueue?.TryEnqueue(() =>
+        {
+            Bindings.Update();
+            HandleAuthStateChanged();
+            if (state == ClientSessionState.Locked)
+            {
+                LockOverlay.PrepareForLock();
+            }
+        });
+    }
+
+    private void HandleAuthStateChanged()
+    {
+        if (ViewModel.IsUserAuthenticated)
+        {
+            ApplyRolePermissions();
+            if (ContentFrame.Content == null)
+            {
+                ContentFrame.Navigate(typeof(HomePage));
+                ViewModel.CurrentModuleName = "Home / Dashboard";
+                NavView.SelectedItem = NavHome;
+            }
+        }
+        else
+        {
+            // Show login page
+            if (LoginHostFrame.Content is not LoginPage)
+            {
+                LoginHostFrame.Navigate(typeof(LoginPage));
+            }
+            ContentFrame.Content = null;
+        }
+    }
+
+    private void ApplyRolePermissions()
+    {
+        var role = ClientSessionManager.Instance.CurrentRole;
+        if (role == null) return;
+
+        var currentRole = role.Value;
+        NavHome.Visibility = Visibility.Visible;
+
+        NavPos.Visibility = RolePermissions.HasPermission(currentRole, Permission.ProcessSale)
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        NavProducts.Visibility = RolePermissions.HasPermission(currentRole, Permission.ViewStock)
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        NavReports.Visibility = RolePermissions.HasPermission(currentRole, Permission.ViewReports)
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        var canSettings = RolePermissions.HasPermission(currentRole, Permission.ManageUsers)
+            || RolePermissions.HasPermission(currentRole, Permission.ManageStoreSettings)
+            || RolePermissions.HasPermission(currentRole, Permission.ManageTerminals);
+
+        NavView.IsSettingsVisible = canSettings;
     }
 
     private void OnNavViewLoaded(object sender, RoutedEventArgs e)
     {
-        if (NavView.MenuItems.Count > 0)
-        {
-            NavView.SelectedItem = NavView.MenuItems[0];
-            ContentFrame.Navigate(typeof(HomePage));
-            ViewModel.CurrentModuleName = "Home / Dashboard";
-        }
+        HandleAuthStateChanged();
 
         // Run non-blocking server discovery in background
         _ = ViewModel.InitializeAsync();
@@ -114,5 +198,15 @@ public sealed partial class ShellPage : Page
                 break;
             }
         }
+    }
+
+    private async void OnHeaderLockClicked(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.LockAsync();
+    }
+
+    private async void OnHeaderLogoutClicked(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.LogoutAsync();
     }
 }
