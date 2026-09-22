@@ -9,7 +9,9 @@ namespace RetailPOS.Client.ViewModels;
 
 public sealed partial class LoginViewModel : ObservableObject
 {
+#if DEBUG
     public static bool ForceInitialPinMode { get; set; }
+#endif
 
     private readonly AuthenticationClient _authClient;
     private readonly TerminalEnrollmentClient _terminalClient;
@@ -66,15 +68,21 @@ public sealed partial class LoginViewModel : ObservableObject
                 IsPinMode = true;
             }
 
+#if DEBUG
             if (ForceInitialPinMode)
             {
                 IsPinMode = true;
             }
+#endif
         }
         catch
         {
             IsTerminalEnrolled = false;
+#if DEBUG
             IsPinMode = ForceInitialPinMode;
+#else
+            IsPinMode = false;
+#endif
             TerminalNotice = "Terminal enrollment status unavailable.";
         }
     }

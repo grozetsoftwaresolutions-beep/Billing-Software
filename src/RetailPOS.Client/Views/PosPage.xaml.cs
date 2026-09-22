@@ -31,7 +31,9 @@ public sealed partial class PosPage : Page
     public SolidColorBrush CardTabBackground => ViewModel.IsCardSelected ? ActiveTabBrush : InactiveTabBrush;
     public SolidColorBrush CardTabForeground => ViewModel.IsCardSelected ? ActiveTextBrush : InactiveTextBrush;
 
+#if DEBUG
     public static string? InitialDemoMode { get; set; }
+#endif
 
     public PosPage()
     {
@@ -50,6 +52,7 @@ public sealed partial class PosPage : Page
         {
             SearchBox.Focus(FocusState.Programmatic);
 
+#if DEBUG
             if (InitialDemoMode == "cart" || InitialDemoMode == "payment" || InitialDemoMode == "checkout")
             {
                 ViewModel.AddProductToCart(new RetailPOS.Contracts.Catalog.ProductPosDto(
@@ -80,6 +83,7 @@ public sealed partial class PosPage : Page
                     ViewModel.FinalPayablePaise = 0;
                 }
             }
+#endif
 
             this.Bindings.Update();
         };

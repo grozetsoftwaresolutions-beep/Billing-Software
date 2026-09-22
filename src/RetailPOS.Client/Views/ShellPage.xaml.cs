@@ -18,7 +18,9 @@ public sealed partial class ShellPage : Page
     private static readonly SolidColorBrush AmberBrush = new(Color.FromArgb(255, 245, 158, 11));
 
     public static ShellPage? Current { get; private set; }
+#if DEBUG
     public static string? ForceInitialNavigationTag { get; set; }
+#endif
 
     public ShellViewModel ViewModel { get; }
 
@@ -90,11 +92,13 @@ public sealed partial class ShellPage : Page
             ApplyRolePermissions();
             if (ContentFrame.Content == null)
             {
+#if DEBUG
                 if (!string.IsNullOrEmpty(ForceInitialNavigationTag))
                 {
                     NavigateTo(ForceInitialNavigationTag);
                 }
                 else
+#endif
                 {
                     ContentFrame.Navigate(typeof(HomePage));
                     ViewModel.CurrentModuleName = "Home / Dashboard";

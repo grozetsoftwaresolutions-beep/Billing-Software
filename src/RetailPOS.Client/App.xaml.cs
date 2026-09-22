@@ -32,9 +32,9 @@ public partial class App : Microsoft.UI.Xaml.Application
         e.SetObserved();
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    internal static void ProcessCommandLineArgs(string[] cmdArgs)
     {
-        var cmdArgs = Environment.GetCommandLineArgs();
+#if DEBUG
         foreach (var arg in cmdArgs)
         {
             if (arg.Equals("--demo-locked", StringComparison.OrdinalIgnoreCase))
@@ -122,6 +122,12 @@ public partial class App : Microsoft.UI.Xaml.Application
                 RetailPOS.Client.Views.PosPage.InitialDemoMode = "checkout";
             }
         }
+#endif
+    }
+
+    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        ProcessCommandLineArgs(Environment.GetCommandLineArgs());
 
         _mainWindow = new MainWindow();
         _mainWindow.Activate();

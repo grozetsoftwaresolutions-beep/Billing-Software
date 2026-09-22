@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -435,5 +437,87 @@ public sealed class PosBillingWorkspaceTests
         Assert.Empty(vm.CartItems); // Cart is CLEARED on expiration
         Assert.Equal(0, vm.GrossSubtotalPaise);
         Assert.False(vm.CanCheckout);
+    }
+
+    [Fact]
+    public void DemoFlags_MustBeGuardedByDebugDirective_InSourceAndCompilation()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current != null && !File.Exists(Path.Combine(current.FullName, "RetailPOS.sln")))
+        {
+            current = current.Parent;
+        }
+        Assert.NotNull(current);
+
+        var appXamlCs = Path.Combine(current.FullName, "src", "RetailPOS.Client", "App.xaml.cs");
+        Assert.True(File.Exists(appXamlCs));
+
+        var appSource = File.ReadAllText(appXamlCs);
+        Assert.Contains("#if DEBUG", appSource);
+
+        var debugIndex = appSource.IndexOf("#if DEBUG", StringComparison.Ordinal);
+        var endifIndex = appSource.IndexOf("#endif", debugIndex, StringComparison.Ordinal);
+        Assert.True(debugIndex >= 0 && endifIndex > debugIndex);
+
+        var debugBlock = appSource.Substring(debugIndex, endifIndex - debugIndex);
+        var demoFlags = new[]
+        {
+            "--demo-pos",
+            "--demo-pos-cart",
+            "--demo-pos-payment",
+            "--demo-pos-checkout",
+            "--demo-pin",
+            "--demo-locked",
+            "--demo-authenticated"
+        };
+
+        foreach (var flag in demoFlags)
+        {
+            Assert.Contains(flag, debugBlock, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var beforeDebug = appSource.Substring(0, debugIndex);
+        var afterDebug = appSource.Substring(endifIndex);
+        foreach (var flag in demoFlags)
+        {
+            Assert.DoesNotContain(flag, beforeDebug, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(flag, afterDebug, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var posPageCs = Path.Combine(current.FullName, "src", "RetailPOS.Client", "Views", "PosPage.xaml.cs");
+        Assert.True(File.Exists(posPageCs));
+        var posPageSource = File.ReadAllText(posPageCs);
+        Assert.Contains("#if DEBUG", posPageSource);
+        Assert.Contains("InitialDemoMode", posPageSource);
+    }
+
+    [Fact]
+    public void ReleaseBuild_ClientAssembly_DoesNotContainDemoPropertiesOrBackdoors()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current != null && !File.Exists(Path.Combine(current.FullName, "RetailPOS.sln")))
+        {
+            current = current.Parent;
+        }
+        Assert.NotNull(current);
+
+        var releaseAssemblyPath = Path.Combine(current.FullName, "src", "RetailPOS.Client", "bin", "Release", "net10.0-windows10.0.19041.0", "RetailPOS.Client.dll");
+        if (File.Exists(releaseAssemblyPath))
+        {
+            var releaseAssembly = Assembly.LoadFrom(releaseAssemblyPath);
+            var posPageType = releaseAssembly.GetType("RetailPOS.Client.Views.PosPage");
+            if (posPageType != null)
+            {
+                var initialDemoModeProp = posPageType.GetProperty("InitialDemoMode", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.Null(initialDemoModeProp);
+            }
+
+            var shellPageType = releaseAssembly.GetType("RetailPOS.Client.Views.ShellPage");
+            if (shellPageType != null)
+            {
+                var forceNavProp = shellPageType.GetProperty("ForceInitialNavigationTag", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.Null(forceNavProp);
+            }
+        }
     }
 }
