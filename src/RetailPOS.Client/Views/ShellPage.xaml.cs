@@ -128,7 +128,7 @@ public sealed partial class ShellPage : Page
         NavPos.Visibility = RolePermissions.HasPermission(currentRole, Permission.ProcessSale)
             ? Visibility.Visible : Visibility.Collapsed;
 
-        NavProducts.Visibility = RolePermissions.HasPermission(currentRole, Permission.ViewStock)
+        NavProducts.Visibility = (currentRole == RoleType.Owner || currentRole == RoleType.Admin || currentRole == RoleType.Manager)
             ? Visibility.Visible : Visibility.Collapsed;
 
         NavReports.Visibility = RolePermissions.HasPermission(currentRole, Permission.ViewReports)
@@ -181,8 +181,8 @@ public sealed partial class ShellPage : Page
                 break;
 
             case "Products":
-                ContentFrame.Navigate(typeof(ProductsPlaceholderPage));
-                ViewModel.CurrentModuleName = "Products & Inventory";
+                ContentFrame.Navigate(typeof(ProductsPage));
+                ViewModel.CurrentModuleName = "Products & Stock";
                 SelectMenuItemByTag("Products");
                 break;
 

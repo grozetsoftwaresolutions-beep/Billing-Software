@@ -1,0 +1,132 @@
+<ContentDialog
+    x:Class="RetailPOS.Client.Views.Controls.ProductEditDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    xmlns:cat="using:RetailPOS.Contracts.Catalog"
+    mc:Ignorable="d"
+    Title="Product Details"
+    PrimaryButtonText="Save"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    CornerRadius="12">
+
+    <ScrollViewer MaxHeight="540" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="4">
+        <StackPanel Spacing="16" Width="440">
+            <!-- Error Alert -->
+            <InfoBar IsOpen="{x:Bind HasErrorMessage, Mode=OneWay}"
+                     Severity="Error"
+                     Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                     IsClosable="False" />
+
+            <!-- SKU & Name -->
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Header="SKU *" Text="{x:Bind ViewModel.Sku, Mode=TwoWay}"
+                         IsEnabled="{x:Bind ViewModel.IsCreateMode, Mode=OneWay}"
+                         PlaceholderText="e.g. COFFEE-01" MaxLength="50" CharacterCasing="Upper" />
+                <TextBox Grid.Column="1" Header="Product Name *" Text="{x:Bind ViewModel.Name, Mode=TwoWay}"
+                         PlaceholderText="e.g. Filter Coffee 200g" MaxLength="200" />
+            </Grid>
+
+            <!-- Unit & Tax Category -->
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <ComboBox Header="Unit *" ItemsSource="{x:Bind vm:ProductEditViewModel.SupportedUnits}"
+                              SelectedItem="{x:Bind ViewModel.SelectedUnitCode, Mode=TwoWay}"
+                              IsEnabled="{x:Bind ViewModel.IsUnitEditable, Mode=OneWay}"
+                              HorizontalAlignment="Stretch" />
+                    <TextBlock Text="{x:Bind ViewModel.UnitImmutabilityReason, Mode=OneWay}"
+                               FontSize="10" Foreground="#D97706" TextWrapping="Wrap"
+                               Visibility="{x:Bind UnitWarningVisibility, Mode=OneWay}" />
+                </StackPanel>
+
+                <ComboBox Grid.Column="1" Header="Tax Category (GST) *"
+                          ItemsSource="{x:Bind vm:ProductEditViewModel.SupportedTaxCategories}"
+                          DisplayMemberPath="DisplayName"
+                          SelectedValuePath="Id"
+                          SelectedValue="{x:Bind ViewModel.SelectedTaxCategoryId, Mode=TwoWay}"
+                          HorizontalAlignment="Stretch" />
+            </Grid>
+
+            <!-- Cost Price & Selling Price -->
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Header="Cost Price (₹) *" Text="{x:Bind ViewModel.CostPriceText, Mode=TwoWay}"
+                         PlaceholderText="0.00" InputScope="Number" />
+                <TextBox Grid.Column="1" Header="Selling Price (₹) *" Text="{x:Bind ViewModel.SellingPriceText, Mode=TwoWay}"
+                         PlaceholderText="0.00" InputScope="Number" />
+            </Grid>
+
+            <!-- Stock & Reorder Level -->
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Header="Initial Stock" Text="{x:Bind ViewModel.InitialStockText, Mode=TwoWay}"
+                         IsEnabled="{x:Bind ViewModel.IsCreateMode, Mode=OneWay}"
+                         PlaceholderText="0" InputScope="Number" />
+                <TextBox Grid.Column="1" Header="Reorder Level *" Text="{x:Bind ViewModel.ReorderLevelText, Mode=TwoWay}"
+                         PlaceholderText="5" InputScope="Number" />
+            </Grid>
+
+            <!-- Primary Barcode (Create Mode) -->
+            <TextBox Header="Primary Barcode" Text="{x:Bind ViewModel.PrimaryBarcode, Mode=TwoWay}"
+                     PlaceholderText="e.g. 8901234567890" MaxLength="64"
+                     Visibility="{x:Bind CreateOnlyVisibility, Mode=OneWay}" />
+
+            <!-- Additional Barcodes Section (Edit Mode) -->
+            <StackPanel Spacing="8" Visibility="{x:Bind EditOnlyVisibility, Mode=OneWay}">
+                <TextBlock Text="Registered Barcodes" FontWeight="SemiBold" FontSize="12" Foreground="#475569" />
+                <ListView ItemsSource="{x:Bind ViewModel.Barcodes, Mode=OneWay}" MaxHeight="120"
+                          BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="cat:ProductBarcodeDto">
+                            <Grid Padding="8,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{x:Bind Barcode}" FontWeight="Medium" VerticalAlignment="Center" />
+                                <Border Grid.Column="1" Background="#DCFCE7" CornerRadius="4" Padding="6,2"
+                                        Visibility="{x:Bind IsPrimary}">
+                                    <TextBlock Text="PRIMARY" FontSize="9" FontWeight="Bold" Foreground="#166534" />
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Add New Barcode Row -->
+                <Grid ColumnSpacing="8" Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" PlaceholderText="New barcode..." Text="{x:Bind ViewModel.NewBarcodeInput, Mode=TwoWay}" MaxLength="64" />
+                    <CheckBox Grid.Column="1" Content="Primary" IsChecked="{x:Bind ViewModel.NewBarcodeIsPrimary, Mode=TwoWay}" />
+                    <Button Grid.Column="2" Content="Add" Click="OnAddBarcodeClicked" Style="{StaticResource AccentButtonStyle}" />
+                </Grid>
+            </StackPanel>
+
+            <!-- Notes -->
+            <TextBox Header="Notes / Description" Text="{x:Bind ViewModel.Notes, Mode=TwoWay}"
+                     PlaceholderText="Optional product notes or supplier details..."
+                     AcceptsReturn="True" Height="70" TextWrapping="Wrap" MaxLength="500" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

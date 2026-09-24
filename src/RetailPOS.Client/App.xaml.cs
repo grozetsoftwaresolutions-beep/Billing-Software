@@ -121,6 +121,19 @@ public partial class App : Microsoft.UI.Xaml.Application
                 RetailPOS.Client.Views.ShellPage.ForceInitialNavigationTag = "POS";
                 RetailPOS.Client.Views.PosPage.InitialDemoMode = "checkout";
             }
+            else if (arg.Equals("--demo-products", StringComparison.OrdinalIgnoreCase))
+            {
+                var response = new RetailPOS.Contracts.Auth.LoginResponse(
+                    "demo-manager-token",
+                    Guid.NewGuid(),
+                    "manager1",
+                    "Robert Smith",
+                    RetailPOS.Domain.Enums.RoleType.Manager,
+                    null,
+                    DateTime.UtcNow.AddHours(8));
+                RetailPOS.Client.Services.ClientSessionManager.Instance.SetActiveSession(response);
+                RetailPOS.Client.Views.ShellPage.ForceInitialNavigationTag = "Products";
+            }
         }
 #endif
     }
