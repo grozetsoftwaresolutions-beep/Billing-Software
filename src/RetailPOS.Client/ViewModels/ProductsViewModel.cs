@@ -144,6 +144,30 @@ public sealed partial class ProductsViewModel : ObservableObject
         }
     }
 
+    public async Task<bool> PrepareProductForEditAsync(ProductManagementDto dto, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(dto);
+
+        bool hasTransactionHistory = false;
+        try
+        {
+            // Authoritative server query: checks movement audit ledger (sales, purchases, adjustments, wastage)
+            var movementsRes = await _inventoryClient.GetStockMovementsAsync(dto.Id, page: 1, pageSize: 1, ct: ct);
+            if (movementsRes.Success && movementsRes.Data != null)
+            {
+                hasTransactionHistory = movementsRes.Data.TotalCount > 0;
+            }
+        }
+        catch
+        {
+            // Ensure client does not invent transaction history on query failure
+            hasTransactionHistory = false;
+        }
+
+        EditViewModel.InitializeForEdit(dto, hasTransactionHistory);
+        return hasTransactionHistory;
+    }
+
     public async Task<bool> SaveProductAsync(CancellationToken ct = default)
     {
         if (!EditViewModel.Validate(out var error))

@@ -185,28 +185,133 @@ public sealed class ProductsManagementWorkspaceTests
     }
 
     [Fact]
-    public void ProductEditViewModel_UnitImmutabilityLock_LocksWhenStockExists()
+    public void ProductEditViewModel_UnitImmutability_NoTransactionHistoryAndZeroStock_UnitIsEditable()
     {
         var vm = new ProductEditViewModel();
-        var dtoWithStock = new ProductManagementDto(
-            Guid.NewGuid(), "EXISTING-SKU", "Item With Stock", 1, "Category 1", 1, "Brand 1", "KG",
-            1000, 2000, 1, true, null, [], CurrentStock: 15.5m, ReorderLevel: 5m, IsLowStock: false);
-
-        vm.InitializeForEdit(dtoWithStock);
-
-        Assert.False(vm.IsCreateMode);
-        Assert.False(vm.IsUnitEditable);
-        Assert.NotEmpty(vm.UnitImmutabilityReason);
-        Assert.Equal("KG", vm.SelectedUnitCode);
-
-        // When stock is 0, unit is editable
-        var dtoZeroStock = new ProductManagementDto(
-            Guid.NewGuid(), "ZERO-STOCK-SKU", "Item Without Stock", null, null, null, null, "PC",
+        var dto = new ProductManagementDto(
+            Guid.NewGuid(), "ZERO-STOCK-NO-HISTORY", "Brand New Product", null, null, null, null, "PC",
             500, 1000, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 2m, IsLowStock: false);
 
-        vm.InitializeForEdit(dtoZeroStock);
-        Assert.True(vm.IsUnitEditable);
+        vm.InitializeForEdit(dto, hasTransactionHistory: false);
+
+        Assert.False(vm.IsCreateMode);
+        Assert.True(vm.IsUnitEditable, "Unit must be editable when product has no transaction history and stock is 0.");
         Assert.Empty(vm.UnitImmutabilityReason);
+        Assert.Equal("PC", vm.SelectedUnitCode);
+    }
+
+    [Fact]
+    public void ProductEditViewModel_UnitImmutability_HistoricalTransactionExistsWithCurrentStockZero_UnitMustRemainLocked()
+    {
+        var vm = new ProductEditViewModel();
+        // Product had sales/movements in the past, but current stock is now 0m
+        var dto = new ProductManagementDto(
+            Guid.NewGuid(), "HISTORICAL-ZERO-STOCK", "Past Sold Item", 1, "Category 1", 1, "Brand 1", "KG",
+            1000, 2000, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 5m, IsLowStock: false);
+
+        vm.InitializeForEdit(dto, hasTransactionHistory: true);
+
+        Assert.False(vm.IsCreateMode);
+        Assert.False(vm.IsUnitEditable, "Unit MUST remain locked when historical transactions exist, even if CurrentStock == 0.");
+        Assert.NotEmpty(vm.UnitImmutabilityReason);
+        Assert.Contains("historical transaction", vm.UnitImmutabilityReason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("KG", vm.SelectedUnitCode);
+    }
+
+    [Fact]
+    public void ProductEditViewModel_UnitImmutability_HistoricalTransactionExistsWithCurrentStockPositive_UnitMustRemainLocked()
+    {
+        var vm = new ProductEditViewModel();
+        var dto = new ProductManagementDto(
+            Guid.NewGuid(), "HISTORICAL-ACTIVE-STOCK", "Item With Active Stock", 1, "Category 1", 1, "Brand 1", "KG",
+            1000, 2000, 1, true, null, [], CurrentStock: 15.5m, ReorderLevel: 5m, IsLowStock: false);
+
+        vm.InitializeForEdit(dto, hasTransactionHistory: true);
+
+        Assert.False(vm.IsCreateMode);
+        Assert.False(vm.IsUnitEditable, "Unit MUST remain locked when historical transactions exist and CurrentStock > 0.");
+        Assert.NotEmpty(vm.UnitImmutabilityReason);
+        Assert.Equal("KG", vm.SelectedUnitCode);
+    }
+
+    [Fact]
+    public void ProductEditViewModel_UnitImmutability_PositiveStockWithoutExplicitHistory_UnitMustRemainLocked()
+    {
+        var vm = new ProductEditViewModel();
+        var dto = new ProductManagementDto(
+            Guid.NewGuid(), "STOCK-ONLY", "Item With Stock", null, null, null, null, "L",
+            500, 1000, 1, true, null, [], CurrentStock: 5m, ReorderLevel: 2m, IsLowStock: false);
+
+        // Even if hasTransactionHistory is false or omitted, non-zero stock must lock unit per existing domain rules
+        vm.InitializeForEdit(dto, hasTransactionHistory: false);
+
+        Assert.False(vm.IsCreateMode);
+        Assert.False(vm.IsUnitEditable, "Unit MUST remain locked when CurrentStock > 0 per existing domain rules.");
+        Assert.NotEmpty(vm.UnitImmutabilityReason);
+        Assert.Equal("L", vm.SelectedUnitCode);
+    }
+
+    [Fact]
+    public async Task ProductsViewModel_PrepareProductForEditAsync_AuthoritativeLookups_DoNotInventHistory()
+    {
+        SetupAuthenticatedSession();
+
+        var productIdNoHistory = Guid.NewGuid();
+        var productIdWithHistory = Guid.NewGuid();
+
+        var handler = new MockHttpHandler();
+        handler.Handler = req =>
+        {
+            var uri = req.RequestUri!.ToString();
+            if (uri.Contains(productIdNoHistory.ToString()))
+            {
+                // Authoritative server response: 0 movements
+                var emptyPaged = new PagedResult<StockMovementDto>([], 0, 1, 20);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(ApiResponse.Ok(emptyPaged))
+                });
+            }
+            if (uri.Contains(productIdWithHistory.ToString()))
+            {
+                // Authoritative server response: 3 movements exist
+                var dummyMovement = new StockMovementDto(
+                    1L, productIdWithHistory, "Test Item", StockMovementType.Sale,
+                    -1m, 0m, "PC", "INV-001", "Sale", DateTime.UtcNow, Guid.NewGuid(), Guid.NewGuid());
+                var pagedWithMovements = new PagedResult<StockMovementDto>([dummyMovement], 3, 1, 20);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(ApiResponse.Ok(pagedWithMovements))
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        };
+
+        var httpClient = new HttpClient(handler);
+        var productClient = new ProductApiClient(httpClient, "https://localhost:5101");
+        var inventoryClient = new InventoryApiClient(httpClient, "https://localhost:5101");
+        var vm = new ProductsViewModel(productClient, inventoryClient);
+
+        // 1. Prepare product with NO history and 0 stock -> UI allows unit editing
+        var dtoNoHistory = new ProductManagementDto(
+            productIdNoHistory, "SKU-NO-HIST", "New Product", null, null, null, null, "PC",
+            100, 200, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 2m, IsLowStock: false);
+
+        var hasHistory1 = await vm.PrepareProductForEditAsync(dtoNoHistory);
+        Assert.False(hasHistory1, "Server indicated 0 movements; client must not invent history.");
+        Assert.True(vm.EditViewModel.IsUnitEditable, "Unit must be editable when server confirms no history and stock is 0.");
+        Assert.Empty(vm.EditViewModel.UnitImmutabilityReason);
+
+        // 2. Prepare product with transaction history and 0 stock -> UI MUST lock unit
+        var dtoWithHistory = new ProductManagementDto(
+            productIdWithHistory, "SKU-WITH-HIST", "Historical Item", null, null, null, null, "KG",
+            100, 200, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 2m, IsLowStock: false);
+
+        var hasHistory2 = await vm.PrepareProductForEditAsync(dtoWithHistory);
+        Assert.True(hasHistory2, "Server indicated 3 movements; client accurately reflects authoritative history.");
+        Assert.False(vm.EditViewModel.IsUnitEditable, "Unit MUST be locked when server confirms history, even if stock == 0.");
+        Assert.NotEmpty(vm.EditViewModel.UnitImmutabilityReason);
     }
 
     // =========================================================================

@@ -113,7 +113,7 @@ public sealed partial class ProductsPage : Page
     {
         if (sender is Button { Tag: ProductItemViewModel item })
         {
-            ViewModel.EditViewModel.InitializeForEdit(item.Dto);
+            await ViewModel.PrepareProductForEditAsync(item.Dto);
             var dialog = new ProductEditDialog(ViewModel.EditViewModel)
             {
                 XamlRoot = this.XamlRoot
