@@ -192,7 +192,7 @@ public sealed class ProductsManagementWorkspaceTests
             Guid.NewGuid(), "ZERO-STOCK-NO-HISTORY", "Brand New Product", null, null, null, null, "PC",
             500, 1000, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 2m, IsLowStock: false);
 
-        vm.InitializeForEdit(dto, hasTransactionHistory: false);
+        vm.InitializeForEdit(dto, hasTransactionHistory: false, historyLookupFailed: false);
 
         Assert.False(vm.IsCreateMode);
         Assert.True(vm.IsUnitEditable, "Unit must be editable when product has no transaction history and stock is 0.");
@@ -209,7 +209,7 @@ public sealed class ProductsManagementWorkspaceTests
             Guid.NewGuid(), "HISTORICAL-ZERO-STOCK", "Past Sold Item", 1, "Category 1", 1, "Brand 1", "KG",
             1000, 2000, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 5m, IsLowStock: false);
 
-        vm.InitializeForEdit(dto, hasTransactionHistory: true);
+        vm.InitializeForEdit(dto, hasTransactionHistory: true, historyLookupFailed: false);
 
         Assert.False(vm.IsCreateMode);
         Assert.False(vm.IsUnitEditable, "Unit MUST remain locked when historical transactions exist, even if CurrentStock == 0.");
@@ -226,7 +226,7 @@ public sealed class ProductsManagementWorkspaceTests
             Guid.NewGuid(), "HISTORICAL-ACTIVE-STOCK", "Item With Active Stock", 1, "Category 1", 1, "Brand 1", "KG",
             1000, 2000, 1, true, null, [], CurrentStock: 15.5m, ReorderLevel: 5m, IsLowStock: false);
 
-        vm.InitializeForEdit(dto, hasTransactionHistory: true);
+        vm.InitializeForEdit(dto, hasTransactionHistory: true, historyLookupFailed: false);
 
         Assert.False(vm.IsCreateMode);
         Assert.False(vm.IsUnitEditable, "Unit MUST remain locked when historical transactions exist and CurrentStock > 0.");
@@ -235,19 +235,20 @@ public sealed class ProductsManagementWorkspaceTests
     }
 
     [Fact]
-    public void ProductEditViewModel_UnitImmutability_PositiveStockWithoutExplicitHistory_UnitMustRemainLocked()
+    public void ProductEditViewModel_UnitImmutability_LookupFailure_UnknownStateMustNotBecomeNoHistory()
     {
         var vm = new ProductEditViewModel();
         var dto = new ProductManagementDto(
-            Guid.NewGuid(), "STOCK-ONLY", "Item With Stock", null, null, null, null, "L",
-            500, 1000, 1, true, null, [], CurrentStock: 5m, ReorderLevel: 2m, IsLowStock: false);
+            Guid.NewGuid(), "UNKNOWN-HISTORY", "Item With Unknown History", null, null, null, null, "L",
+            500, 1000, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 2m, IsLowStock: false);
 
-        // Even if hasTransactionHistory is false or omitted, non-zero stock must lock unit per existing domain rules
-        vm.InitializeForEdit(dto, hasTransactionHistory: false);
+        // Fail-safe: When lookup fails, unknown state must lock the unit and explain the reason
+        vm.InitializeForEdit(dto, hasTransactionHistory: false, historyLookupFailed: true);
 
         Assert.False(vm.IsCreateMode);
-        Assert.False(vm.IsUnitEditable, "Unit MUST remain locked when CurrentStock > 0 per existing domain rules.");
+        Assert.False(vm.IsUnitEditable, "Unit MUST remain locked when transaction history lookup fails (fail-closed).");
         Assert.NotEmpty(vm.UnitImmutabilityReason);
+        Assert.Contains("could not be verified", vm.UnitImmutabilityReason, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("L", vm.SelectedUnitCode);
     }
 
@@ -258,6 +259,7 @@ public sealed class ProductsManagementWorkspaceTests
 
         var productIdNoHistory = Guid.NewGuid();
         var productIdWithHistory = Guid.NewGuid();
+        var productIdLookupError = Guid.NewGuid();
 
         var handler = new MockHttpHandler();
         handler.Handler = req =>
@@ -283,6 +285,11 @@ public sealed class ProductsManagementWorkspaceTests
                 {
                     Content = JsonContent.Create(ApiResponse.Ok(pagedWithMovements))
                 });
+            }
+            if (uri.Contains(productIdLookupError.ToString()))
+            {
+                // Simulate network error / server failure
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
@@ -312,6 +319,18 @@ public sealed class ProductsManagementWorkspaceTests
         Assert.True(hasHistory2, "Server indicated 3 movements; client accurately reflects authoritative history.");
         Assert.False(vm.EditViewModel.IsUnitEditable, "Unit MUST be locked when server confirms history, even if stock == 0.");
         Assert.NotEmpty(vm.EditViewModel.UnitImmutabilityReason);
+        Assert.Contains("historical transaction", vm.EditViewModel.UnitImmutabilityReason, StringComparison.OrdinalIgnoreCase);
+
+        // 3. Prepare product when history lookup FAILS -> unknown state must NOT become "no history" (must lock)
+        var dtoLookupError = new ProductManagementDto(
+            productIdLookupError, "SKU-LOOKUP-ERR", "Error Item", null, null, null, null, "L",
+            100, 200, 1, true, null, [], CurrentStock: 0m, ReorderLevel: 2m, IsLowStock: false);
+
+        var hasHistory3 = await vm.PrepareProductForEditAsync(dtoLookupError);
+        Assert.Null(hasHistory3); // Returns null (unknown/failed), NOT false
+        Assert.False(vm.EditViewModel.IsUnitEditable, "Unit MUST be locked when lookup fails; client must fail-closed.");
+        Assert.NotEmpty(vm.EditViewModel.UnitImmutabilityReason);
+        Assert.Contains("could not be verified", vm.EditViewModel.UnitImmutabilityReason, StringComparison.OrdinalIgnoreCase);
     }
 
     // =========================================================================

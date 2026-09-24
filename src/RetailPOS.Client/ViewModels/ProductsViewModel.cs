@@ -144,11 +144,12 @@ public sealed partial class ProductsViewModel : ObservableObject
         }
     }
 
-    public async Task<bool> PrepareProductForEditAsync(ProductManagementDto dto, CancellationToken ct = default)
+    public async Task<bool?> PrepareProductForEditAsync(ProductManagementDto dto, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(dto);
 
         bool hasTransactionHistory = false;
+        bool lookupFailed = false;
         try
         {
             // Authoritative server query: checks movement audit ledger (sales, purchases, adjustments, wastage)
@@ -157,15 +158,20 @@ public sealed partial class ProductsViewModel : ObservableObject
             {
                 hasTransactionHistory = movementsRes.Data.TotalCount > 0;
             }
+            else
+            {
+                lookupFailed = true;
+            }
         }
         catch
         {
-            // Ensure client does not invent transaction history on query failure
-            hasTransactionHistory = false;
+            // IMPORTANT: If history lookup fails, do NOT interpret as "no history".
+            // Mark lookup as failed so the client does not safely present the Unit as editable.
+            lookupFailed = true;
         }
 
-        EditViewModel.InitializeForEdit(dto, hasTransactionHistory);
-        return hasTransactionHistory;
+        EditViewModel.InitializeForEdit(dto, hasTransactionHistory, lookupFailed);
+        return lookupFailed ? null : hasTransactionHistory;
     }
 
     public async Task<bool> SaveProductAsync(CancellationToken ct = default)

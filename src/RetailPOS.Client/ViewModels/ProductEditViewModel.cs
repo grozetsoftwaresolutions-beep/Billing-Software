@@ -119,7 +119,7 @@ public sealed partial class ProductEditViewModel : ObservableObject
         Barcodes.Clear();
     }
 
-    public void InitializeForEdit(ProductManagementDto dto, bool hasTransactionHistory = false)
+    public void InitializeForEdit(ProductManagementDto dto, bool hasTransactionHistory = false, bool historyLookupFailed = false)
     {
         ArgumentNullException.ThrowIfNull(dto);
 
@@ -138,18 +138,37 @@ public sealed partial class ProductEditViewModel : ObservableObject
         ErrorMessage = string.Empty;
 
         // Unit of Measure becomes immutable when the product has historical transaction/activity history
-        // (sales, purchases, or inventory movements), or current stock is non-zero.
-        var isLocked = hasTransactionHistory || dto.CurrentStock != 0m;
-        IsUnitEditable = !isLocked;
-        UnitImmutabilityReason = isLocked
-            ? "Unit of Measure cannot be modified because historical transaction, sales, purchase, or inventory activity exists."
-            : string.Empty;
+        // (sales, purchases, or inventory movements).
+        // If the authoritative history lookup failed, fail-safe/closed: do not present Unit as safely editable.
+        if (historyLookupFailed)
+        {
+            IsUnitEditable = false;
+            UnitImmutabilityReason = "Unit of Measure cannot be modified because transaction history could not be verified from the server.";
+        }
+        else if (hasTransactionHistory)
+        {
+            IsUnitEditable = false;
+            UnitImmutabilityReason = "Unit of Measure cannot be modified because historical transaction, sales, purchase, or inventory activity exists.";
+        }
+        else
+        {
+            // No historical transaction/activity confirmed
+            IsUnitEditable = true;
+            UnitImmutabilityReason = string.Empty;
+        }
 
         Barcodes.Clear();
         foreach (var b in dto.Barcodes)
         {
             Barcodes.Add(b);
         }
+    }
+
+    public void InitializeForEdit(ProductManagementDto dto, bool? hasTransactionHistory)
+    {
+        var lookupFailed = !hasTransactionHistory.HasValue;
+        var hasHistory = hasTransactionHistory.GetValueOrDefault();
+        InitializeForEdit(dto, hasHistory, lookupFailed);
     }
 
     public static bool IsValidQuantityForUnit(decimal quantity, string? unitCode)
