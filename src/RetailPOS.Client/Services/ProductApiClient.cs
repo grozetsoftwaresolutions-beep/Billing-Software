@@ -30,7 +30,7 @@ public sealed class ProductApiClient
 
     public ProductApiClient(HttpClient? httpClient = null, string? httpsBaseUrl = null)
     {
-        _httpClient = httpClient ?? CreateDefaultHttpClient();
+        _httpClient = httpClient ?? new HttpClient();
 
         var baseUrl = httpsBaseUrl ?? $"https://localhost:{WindowsServiceDeploymentSpecification.HttpsPort}";
         if (!baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -39,23 +39,6 @@ public sealed class ProductApiClient
         }
 
         _httpsBaseUrl = baseUrl.TrimEnd('/');
-    }
-
-    private static HttpClient CreateDefaultHttpClient()
-    {
-#if DEBUG
-        var handler = new HttpClientHandler
-        {
-            ServerCertificateCustomValidationCallback = (msg, cert, chain, errors) =>
-            {
-                if (msg.RequestUri?.Host is "localhost" or "127.0.0.1") return true;
-                return errors == System.Net.Security.SslPolicyErrors.None;
-            }
-        };
-        return new HttpClient(handler);
-#else
-        return new HttpClient();
-#endif
     }
 
     private static void ApplySecurityHeaders(HttpRequestMessage request, string? token)

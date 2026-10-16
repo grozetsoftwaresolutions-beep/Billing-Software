@@ -56,6 +56,7 @@ public sealed partial class LoginViewModel : ObservableObject
         {
             var pairingToken = _terminalClient.LoadPairingToken();
             IsTerminalEnrolled = !string.IsNullOrWhiteSpace(pairingToken);
+            EnrolledTerminalId = _terminalClient.LoadTerminalId();
 
             if (!IsTerminalEnrolled)
             {

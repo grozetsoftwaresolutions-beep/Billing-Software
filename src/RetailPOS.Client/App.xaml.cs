@@ -148,9 +148,35 @@ public partial class App : Microsoft.UI.Xaml.Application
                 RetailPOS.Client.Services.ClientSessionManager.Instance.SetActiveSession(response);
                 RetailPOS.Client.Views.ShellPage.ForceInitialNavigationTag = "Products";
             }
+            else if (arg.StartsWith("--login-username=", StringComparison.OrdinalIgnoreCase))
+            {
+                AutomationInitialUsername = arg["--login-username=".Length..];
+            }
+            else if (arg.StartsWith("--login-password=", StringComparison.OrdinalIgnoreCase))
+            {
+                AutomationInitialPassword = arg["--login-password=".Length..];
+            }
+            else if (arg.StartsWith("--login-pin=", StringComparison.OrdinalIgnoreCase))
+            {
+                AutomationInitialPin = arg["--login-pin=".Length..];
+            }
+            else if (arg.StartsWith("--enrolled-terminal-id=", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Guid.TryParse(arg["--enrolled-terminal-id=".Length..], out var tId))
+                {
+                    AutomationTerminalId = tId;
+                }
+            }
         }
 #endif
     }
+
+#if DEBUG
+    public static string? AutomationInitialUsername { get; set; }
+    public static string? AutomationInitialPassword { get; set; }
+    public static string? AutomationInitialPin { get; set; }
+    public static Guid? AutomationTerminalId { get; set; }
+#endif
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {

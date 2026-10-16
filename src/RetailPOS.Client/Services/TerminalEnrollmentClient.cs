@@ -14,14 +14,18 @@ public sealed class TerminalEnrollmentClient
 {
     private readonly HttpClient _httpClient;
     private readonly string _tokenStoragePath;
+    private readonly string _terminalIdStoragePath;
     private static readonly byte[] Entropy = "GrozetPOS_Terminal_Entropy_Salt"u8.ToArray();
 
-    public TerminalEnrollmentClient(HttpClient httpClient, string? tokenStoragePath = null)
+    public TerminalEnrollmentClient(HttpClient httpClient, string? tokenStoragePath = null, string? terminalIdStoragePath = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _tokenStoragePath = tokenStoragePath ?? Path.Combine(
             RetailPOSPaths.GetDefaultClientSecurityDirectory(),
             "terminal_token.dat");
+        _terminalIdStoragePath = terminalIdStoragePath ?? Path.Combine(
+            Path.GetDirectoryName(_tokenStoragePath) ?? RetailPOSPaths.GetDefaultClientSecurityDirectory(),
+            "terminal_id.dat");
     }
 
     public async Task<TerminalEnrollResponseDto> EnrollAsync(
@@ -46,6 +50,7 @@ public sealed class TerminalEnrollmentClient
             throw new InvalidOperationException("TERMINAL_ENROLL_RESPONSE_EMPTY");
 
         SavePairingToken(result.TerminalAuthToken);
+        SaveTerminalId(result.TerminalId);
         return result;
     }
 
@@ -71,6 +76,7 @@ public sealed class TerminalEnrollmentClient
             throw new InvalidOperationException("TERMINAL_REPAIR_RESPONSE_EMPTY");
 
         SavePairingToken(result.TerminalAuthToken);
+        SaveTerminalId(result.TerminalId);
         return result;
     }
 
@@ -124,6 +130,37 @@ public sealed class TerminalEnrollmentClient
     {
         if (File.Exists(_tokenStoragePath))
             File.Delete(_tokenStoragePath);
+        if (File.Exists(_terminalIdStoragePath))
+            File.Delete(_terminalIdStoragePath);
+    }
+
+    public Guid? LoadTerminalId()
+    {
+        if (!File.Exists(_terminalIdStoragePath))
+            return null;
+
+        try
+        {
+            var text = File.ReadAllText(_terminalIdStoragePath).Trim();
+            return Guid.TryParse(text, out var id) ? id : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void SaveTerminalId(Guid terminalId)
+    {
+        if (terminalId == Guid.Empty)
+            throw new ArgumentException("Terminal ID cannot be empty.", nameof(terminalId));
+
+        var dir = Path.GetDirectoryName(_terminalIdStoragePath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+
+        File.WriteAllText(_terminalIdStoragePath, terminalId.ToString());
+        ApplyRestrictiveAcls(_terminalIdStoragePath);
     }
 
     private static void ApplyRestrictiveAcls(string filePath)

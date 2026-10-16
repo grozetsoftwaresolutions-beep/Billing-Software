@@ -42,6 +42,29 @@ public sealed partial class LoginPage : Page
         };
 
         UpdateTabVisuals();
+
+#if DEBUG
+        if (!string.IsNullOrEmpty(App.AutomationInitialUsername))
+        {
+            ViewModel.Username = App.AutomationInitialUsername;
+        }
+        if (!string.IsNullOrEmpty(App.AutomationInitialPassword))
+        {
+            PasswordInput.Password = App.AutomationInitialPassword;
+            ViewModel.IsPinMode = false;
+        }
+        if (!string.IsNullOrEmpty(App.AutomationInitialPin))
+        {
+            PinInput.Password = App.AutomationInitialPin;
+            ViewModel.IsPinMode = true;
+        }
+        if (App.AutomationTerminalId.HasValue)
+        {
+            ViewModel.EnrolledTerminalId = App.AutomationTerminalId.Value;
+            ViewModel.IsTerminalEnrolled = true;
+        }
+        UpdateTabVisuals();
+#endif
     }
 
     private void UpdateTabVisuals()
