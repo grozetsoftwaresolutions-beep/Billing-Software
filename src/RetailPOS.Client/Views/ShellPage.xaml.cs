@@ -131,6 +131,9 @@ public sealed partial class ShellPage : Page
         NavSalesHistory.Visibility = (currentRole == RoleType.Owner || currentRole == RoleType.Admin || currentRole == RoleType.Manager)
             ? Visibility.Visible : Visibility.Collapsed;
 
+        NavCustomers.Visibility = (currentRole != RoleType.Viewer)
+            ? Visibility.Visible : Visibility.Collapsed;
+
         NavProducts.Visibility = (currentRole == RoleType.Owner || currentRole == RoleType.Admin || currentRole == RoleType.Manager)
             ? Visibility.Visible : Visibility.Collapsed;
 
@@ -192,6 +195,17 @@ public sealed partial class ShellPage : Page
                 ContentFrame.Navigate(typeof(SalesHistoryPage));
                 ViewModel.CurrentModuleName = "Sales History & Invoices";
                 SelectMenuItemByTag("SalesHistory");
+                break;
+
+            case "Customers":
+                if (ClientSessionManager.Instance.CurrentRole is RoleType.Viewer)
+                {
+                    // Programmatic guard: Viewer must not access Customers & Credit
+                    return;
+                }
+                ContentFrame.Navigate(typeof(CustomersPage));
+                ViewModel.CurrentModuleName = "Customers & Credit";
+                SelectMenuItemByTag("Customers");
                 break;
 
             case "Products":

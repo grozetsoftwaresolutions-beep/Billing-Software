@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using RetailPOS.Contracts.Catalog;
 using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Configuration;
+using RetailPOS.Contracts.Customers;
 using RetailPOS.Contracts.Hardware;
 using RetailPOS.Contracts.Sales;
 
@@ -310,6 +311,194 @@ public sealed class PosApiClient
 
         using var response = await _httpClient.SendAsync(request, ct);
         return await ReadResponseAsync<StoreSettingsDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<PagedResult<CustomerDto>>> SearchCustomersAsync(
+        string? searchTerm,
+        bool? isActive,
+        int page = 1,
+        int pageSize = 20,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var queryParams = new List<string>
+        {
+            $"page={Math.Max(1, page)}",
+            $"pageSize={Math.Clamp(pageSize, 1, 100)}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            queryParams.Add($"searchTerm={Uri.EscapeDataString(searchTerm.Trim())}");
+        }
+
+        if (isActive.HasValue)
+        {
+            queryParams.Add($"isActive={isActive.Value.ToString().ToLowerInvariant()}");
+        }
+
+        var url = $"{_httpsBaseUrl}/api/v1/customers?{string.Join("&", queryParams)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<PagedResult<CustomerDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<CustomerDto>> GetCustomerByIdAsync(
+        Guid id,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{id}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CustomerDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CustomerDto>> GetCustomerByPhoneAsync(
+        string phone,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(phone);
+        var url = $"{_httpsBaseUrl}/api/v1/customers/by-phone/{Uri.EscapeDataString(phone.Trim())}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CustomerDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CustomerDto>> CreateCustomerAsync(
+        CreateCustomerRequest createRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(createRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/customers";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(createRequest)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CustomerDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CustomerDto>> UpdateCustomerAsync(
+        Guid id,
+        UpdateCustomerRequest updateRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(updateRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{id}";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(updateRequest)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CustomerDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CustomerDto>> UpdateCreditLimitAsync(
+        Guid id,
+        UpdateCreditLimitRequest updateLimitRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(updateLimitRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{id}/credit-limit";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(updateLimitRequest)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CustomerDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CustomerDto>> SetCustomerStatusAsync(
+        Guid id,
+        SetCustomerStatusRequest statusRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(statusRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{id}/status";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(statusRequest)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CustomerDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CustomerPaymentDto>> RecordCustomerPaymentAsync(
+        Guid customerId,
+        RecordCustomerPaymentRequest paymentRequest,
+        Guid? terminalId = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(paymentRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{customerId}/payments";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(paymentRequest)
+        };
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true, terminalId: terminalId);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CustomerPaymentDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<IReadOnlyList<CustomerPaymentDto>>> GetCustomerPaymentsAsync(
+        Guid customerId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{customerId}/payments";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<IReadOnlyList<CustomerPaymentDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<IReadOnlyList<CustomerLedgerEntryDto>>> GetCustomerLedgerAsync(
+        Guid customerId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{customerId}/ledger";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<IReadOnlyList<CustomerLedgerEntryDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<IReadOnlyList<SaleInvoiceDto>>> GetCustomerSalesAsync(
+        Guid customerId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/customers/{customerId}/sales";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<IReadOnlyList<SaleInvoiceDto>>(response, ct);
     }
 
     private static async Task<ApiResponse<T>> ReadResponseAsync<T>(HttpResponseMessage response, CancellationToken ct)
