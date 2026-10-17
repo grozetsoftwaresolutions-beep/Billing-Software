@@ -128,6 +128,9 @@ public sealed partial class ShellPage : Page
         NavPos.Visibility = RolePermissions.HasPermission(currentRole, Permission.ProcessSale)
             ? Visibility.Visible : Visibility.Collapsed;
 
+        NavSalesHistory.Visibility = (currentRole == RoleType.Owner || currentRole == RoleType.Admin || currentRole == RoleType.Manager)
+            ? Visibility.Visible : Visibility.Collapsed;
+
         NavProducts.Visibility = (currentRole == RoleType.Owner || currentRole == RoleType.Admin || currentRole == RoleType.Manager)
             ? Visibility.Visible : Visibility.Collapsed;
 
@@ -178,6 +181,17 @@ public sealed partial class ShellPage : Page
                 ContentFrame.Navigate(typeof(PosPage));
                 ViewModel.CurrentModuleName = "POS & Billing";
                 SelectMenuItemByTag("POS");
+                break;
+
+            case "SalesHistory":
+                if (ClientSessionManager.Instance.CurrentRole is RoleType.Cashier or RoleType.Viewer)
+                {
+                    // Programmatic guard: Cashier and Viewer must not access Sales History
+                    return;
+                }
+                ContentFrame.Navigate(typeof(SalesHistoryPage));
+                ViewModel.CurrentModuleName = "Sales History & Invoices";
+                SelectMenuItemByTag("SalesHistory");
                 break;
 
             case "Products":

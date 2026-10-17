@@ -412,6 +412,18 @@
                             FontWeight="Bold"
                             Padding="24, 12"
                             CornerRadius="8" />
+
+                    <Button x:Name="ViewInSalesHistoryBtn"
+                            Content="View in Sales History"
+                            Click="OnViewInSalesHistoryClicked"
+                            Visibility="{x:Bind ViewInSalesHistoryVisibility, Mode=OneWay}"
+                            HorizontalAlignment="Stretch"
+                            Background="#F1F5F9"
+                            Foreground="#1E3E62"
+                            FontWeight="SemiBold"
+                            Padding="24, 10"
+                            CornerRadius="8"
+                            AutomationProperties.AutomationId="ViewInSalesHistoryButton" />
                 </StackPanel>
             </Border>
         </Grid>

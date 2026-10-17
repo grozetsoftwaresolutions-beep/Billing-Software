@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -8,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using RetailPOS.Contracts.Catalog;
 using RetailPOS.Contracts.Common;
+using RetailPOS.Contracts.Configuration;
 using RetailPOS.Contracts.Hardware;
 using RetailPOS.Contracts.Sales;
 
@@ -197,5 +199,148 @@ public sealed class PosApiClient
         using var response = await _httpClient.SendAsync(request, ct);
         var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions, ct);
         return result ?? ApiResponse.Ok<object>(new { Reported = true });
+    }
+
+    public async Task<ApiResponse<PagedResult<SaleSummaryDto>>> SearchSalesAsync(
+        SaleSearchRequest searchRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(searchRequest);
+
+        var queryParams = new List<string>
+        {
+            $"page={searchRequest.Page}",
+            $"pageSize={searchRequest.PageSize}"
+        };
+
+        if (searchRequest.FromUtc.HasValue)
+        {
+            queryParams.Add($"fromUtc={Uri.EscapeDataString(searchRequest.FromUtc.Value.ToString("o"))}");
+        }
+
+        if (searchRequest.ToUtc.HasValue)
+        {
+            queryParams.Add($"toUtc={Uri.EscapeDataString(searchRequest.ToUtc.Value.ToString("o"))}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchRequest.InvoiceNumber))
+        {
+            queryParams.Add($"invoiceNumber={Uri.EscapeDataString(searchRequest.InvoiceNumber.Trim())}");
+        }
+
+        if (searchRequest.CashierId.HasValue)
+        {
+            queryParams.Add($"cashierId={searchRequest.CashierId.Value}");
+        }
+
+        if (searchRequest.TerminalId.HasValue)
+        {
+            queryParams.Add($"terminalId={searchRequest.TerminalId.Value}");
+        }
+
+        var url = $"{_httpsBaseUrl}/api/v1/sales?{string.Join("&", queryParams)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<PagedResult<SaleSummaryDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<SaleInvoiceDto>> GetSaleByIdAsync(
+        Guid id,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/sales/{id}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<SaleInvoiceDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<SaleInvoiceDto>> GetSaleByInvoiceNumberAsync(
+        string invoiceNumber,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(invoiceNumber);
+        var url = $"{_httpsBaseUrl}/api/v1/sales/invoice/{Uri.EscapeDataString(invoiceNumber.Trim())}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<SaleInvoiceDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<ReceiptPrintResponseDto>> ReprintReceiptAsync(
+        Guid saleInvoiceId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/sales/{saleInvoiceId}/reprint";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<ReceiptPrintResponseDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<IReadOnlyList<SaleRefundDto>>> GetSaleRefundsAsync(
+        Guid saleInvoiceId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/sales/{saleInvoiceId}/refunds";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<IReadOnlyList<SaleRefundDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<StoreSettingsDto>> GetStoreSettingsAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/store/settings";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<StoreSettingsDto>(response, ct);
+    }
+
+    private static async Task<ApiResponse<T>> ReadResponseAsync<T>(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadFromJsonAsync<ApiResponse<T>>(JsonOptions, ct);
+            if (body != null) return body;
+        }
+        catch
+        {
+            // fallback if body cannot be parsed or is empty
+        }
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            return ApiResponse.Fail<T>("Authentication required. Please log in again.", "UNAUTHORIZED");
+        }
+        if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            return ApiResponse.Fail<T>("Permission denied for this operation.", "FORBIDDEN");
+        }
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return ApiResponse.Fail<T>("Requested resource not found.", "NOT_FOUND");
+        }
+        if (!response.IsSuccessStatusCode)
+        {
+            return ApiResponse.Fail<T>($"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}", response.StatusCode.ToString());
+        }
+
+        return ApiResponse.Fail<T>("Empty response received from store server.", "EMPTY_RESPONSE");
     }
 }

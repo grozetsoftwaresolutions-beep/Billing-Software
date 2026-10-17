@@ -131,6 +131,7 @@
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="NavHome" Content="Home" Tag="Home" Icon="Home" />
                 <NavigationViewItem x:Name="NavPos" Content="POS &amp; Billing" Tag="POS" Icon="Shop" />
+                <NavigationViewItem x:Name="NavSalesHistory" Content="Sales History" Tag="SalesHistory" Icon="Clock" />
                 <NavigationViewItem x:Name="NavProducts" Content="Products &amp; Stock" Tag="Products" Icon="AllApps" />
                 <NavigationViewItem x:Name="NavReports" Content="Reports" Tag="Reports" Icon="Document" />
             </NavigationView.MenuItems>

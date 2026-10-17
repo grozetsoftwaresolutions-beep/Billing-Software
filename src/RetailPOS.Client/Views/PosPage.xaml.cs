@@ -4,7 +4,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using RetailPOS.Client.Services;
 using RetailPOS.Client.ViewModels;
+using RetailPOS.Domain.Enums;
 using Windows.System;
 using Windows.UI;
 
@@ -25,6 +27,17 @@ public sealed partial class PosPage : Page
     public Visibility CashFormVisibility => ViewModel.IsCashSelected ? Visibility.Visible : Visibility.Collapsed;
     public Visibility CardFormVisibility => ViewModel.IsCardSelected ? Visibility.Visible : Visibility.Collapsed;
     public Visibility CheckoutSuccessVisibility => ViewModel.IsCheckoutSuccess ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ViewInSalesHistoryVisibility
+    {
+        get
+        {
+            if (ViewModel == null) return Visibility.Collapsed;
+            var role = ClientSessionManager.Instance.CurrentRole;
+            return (role == RoleType.Owner || role == RoleType.Admin || role == RoleType.Manager)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+    }
 
     public SolidColorBrush CashTabBackground => ViewModel.IsCashSelected ? ActiveTabBrush : InactiveTabBrush;
     public SolidColorBrush CashTabForeground => ViewModel.IsCashSelected ? ActiveTextBrush : InactiveTextBrush;
@@ -206,5 +219,11 @@ public sealed partial class PosPage : Page
     {
         ViewModel.NewBill();
         SearchBox.Focus(FocusState.Programmatic);
+    }
+
+    private void OnViewInSalesHistoryClicked(object sender, RoutedEventArgs e)
+    {
+        ViewModel.NewBill();
+        ShellPage.Current?.NavigateTo("SalesHistory");
     }
 }
