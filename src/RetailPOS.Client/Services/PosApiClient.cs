@@ -8,10 +8,12 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using RetailPOS.Contracts.Catalog;
+using RetailPOS.Contracts.CashSessions;
 using RetailPOS.Contracts.Common;
 using RetailPOS.Contracts.Configuration;
 using RetailPOS.Contracts.Customers;
 using RetailPOS.Contracts.Hardware;
+using RetailPOS.Contracts.Reports;
 using RetailPOS.Contracts.Sales;
 
 namespace RetailPOS.Client.Services;
@@ -499,6 +501,206 @@ public sealed class PosApiClient
 
         using var response = await _httpClient.SendAsync(request, ct);
         return await ReadResponseAsync<IReadOnlyList<SaleInvoiceDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<DailySalesSummaryReportDto>> GetDailySalesSummaryAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        Guid? terminalId = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var queryParams = new List<string>();
+        if (fromDate.HasValue)
+            queryParams.Add($"fromDate={Uri.EscapeDataString(fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (toDate.HasValue)
+            queryParams.Add($"toDate={Uri.EscapeDataString(toDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (terminalId.HasValue && terminalId.Value != Guid.Empty)
+            queryParams.Add($"terminalId={terminalId.Value}");
+
+        var url = $"{_httpsBaseUrl}/api/v1/reports/daily-sales{(queryParams.Count > 0 ? "?" + string.Join("&", queryParams) : "")}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<DailySalesSummaryReportDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<TaxSummaryReportDto>> GetTaxSummaryAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var queryParams = new List<string>();
+        if (fromDate.HasValue)
+            queryParams.Add($"fromDate={Uri.EscapeDataString(fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (toDate.HasValue)
+            queryParams.Add($"toDate={Uri.EscapeDataString(toDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+
+        var url = $"{_httpsBaseUrl}/api/v1/reports/tax-summary{(queryParams.Count > 0 ? "?" + string.Join("&", queryParams) : "")}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<TaxSummaryReportDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<ProductPerformanceReportDto>> GetProductPerformanceAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        int? categoryId = null,
+        Guid? productId = null,
+        int page = 1,
+        int pageSize = 50,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var queryParams = new List<string>
+        {
+            $"page={Math.Max(1, page)}",
+            $"pageSize={Math.Clamp(pageSize, 1, 200)}"
+        };
+        if (fromDate.HasValue)
+            queryParams.Add($"fromDate={Uri.EscapeDataString(fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (toDate.HasValue)
+            queryParams.Add($"toDate={Uri.EscapeDataString(toDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (categoryId.HasValue)
+            queryParams.Add($"categoryId={categoryId.Value}");
+        if (productId.HasValue && productId.Value != Guid.Empty)
+            queryParams.Add($"productId={productId.Value}");
+
+        var url = $"{_httpsBaseUrl}/api/v1/reports/product-sales?{string.Join("&", queryParams)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<ProductPerformanceReportDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CashierPerformanceReportDto>> GetCashierPerformanceAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        Guid? cashierUserId = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var queryParams = new List<string>();
+        if (fromDate.HasValue)
+            queryParams.Add($"fromDate={Uri.EscapeDataString(fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (toDate.HasValue)
+            queryParams.Add($"toDate={Uri.EscapeDataString(toDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (cashierUserId.HasValue && cashierUserId.Value != Guid.Empty)
+            queryParams.Add($"cashierUserId={cashierUserId.Value}");
+
+        var url = $"{_httpsBaseUrl}/api/v1/reports/cashier-summary{(queryParams.Count > 0 ? "?" + string.Join("&", queryParams) : "")}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CashierPerformanceReportDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CurrentTerminalReportDto>> GetCurrentTerminalReportAsync(
+        Guid? terminalId = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = terminalId.HasValue && terminalId.Value != Guid.Empty
+            ? $"{_httpsBaseUrl}/api/v1/reports/current-terminal?terminalId={terminalId.Value}"
+            : $"{_httpsBaseUrl}/api/v1/reports/current-terminal";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CurrentTerminalReportDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CashSessionDto>> GetActiveCashSessionAsync(
+        Guid terminalId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/cash-sessions/current?terminalId={terminalId}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CashSessionDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CashSessionReportDto>> GetXReportAsync(
+        Guid sessionId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/cash-sessions/{sessionId}/x-report";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CashSessionReportDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<CashSessionReportDto>> GetZReportAsync(
+        Guid sessionId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/cash-sessions/{sessionId}/z-report";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<CashSessionReportDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<bool>> DownloadReportCsvAsync(
+        string reportType,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        Guid? terminalId = null,
+        Guid? cashierUserId = null,
+        int? categoryId = null,
+        Stream? destinationStream = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reportType);
+        ArgumentNullException.ThrowIfNull(destinationStream);
+
+        var queryParams = new List<string>();
+        if (fromDate.HasValue)
+            queryParams.Add($"fromDate={Uri.EscapeDataString(fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (toDate.HasValue)
+            queryParams.Add($"toDate={Uri.EscapeDataString(toDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+        if (terminalId.HasValue && terminalId.Value != Guid.Empty)
+            queryParams.Add($"terminalId={terminalId.Value}");
+        if (cashierUserId.HasValue && cashierUserId.Value != Guid.Empty)
+            queryParams.Add($"cashierUserId={cashierUserId.Value}");
+        if (categoryId.HasValue)
+            queryParams.Add($"categoryId={categoryId.Value}");
+
+        var queryString = queryParams.Count > 0 ? "?" + string.Join("&", queryParams) : string.Empty;
+        var url = $"{_httpsBaseUrl}/api/v1/reports/{Uri.EscapeDataString(reportType.Trim().ToLowerInvariant())}/csv{queryString}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            return await ReadResponseAsync<bool>(response, ct);
+        }
+
+        var contentStream = await response.Content.ReadAsStreamAsync(ct);
+        await using (contentStream.ConfigureAwait(false))
+        {
+            await contentStream.CopyToAsync(destinationStream, ct);
+        }
+
+        return ApiResponse.Ok(true);
     }
 
     private static async Task<ApiResponse<T>> ReadResponseAsync<T>(HttpResponseMessage response, CancellationToken ct)

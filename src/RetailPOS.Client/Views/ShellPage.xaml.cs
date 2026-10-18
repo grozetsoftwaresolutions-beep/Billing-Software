@@ -137,7 +137,7 @@ public sealed partial class ShellPage : Page
         NavProducts.Visibility = (currentRole == RoleType.Owner || currentRole == RoleType.Admin || currentRole == RoleType.Manager)
             ? Visibility.Visible : Visibility.Collapsed;
 
-        NavReports.Visibility = RolePermissions.HasPermission(currentRole, Permission.ViewReports)
+        NavReports.Visibility = (RolePermissions.HasPermission(currentRole, Permission.ViewReports) || currentRole == RoleType.Cashier)
             ? Visibility.Visible : Visibility.Collapsed;
 
         var canSettings = RolePermissions.HasPermission(currentRole, Permission.ManageUsers)
@@ -215,7 +215,7 @@ public sealed partial class ShellPage : Page
                 break;
 
             case "Reports":
-                ContentFrame.Navigate(typeof(ReportsPlaceholderPage));
+                ContentFrame.Navigate(typeof(ReportsPage));
                 ViewModel.CurrentModuleName = "Reports & Analytics";
                 SelectMenuItemByTag("Reports");
                 break;
