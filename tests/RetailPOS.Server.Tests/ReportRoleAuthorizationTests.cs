@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using RetailPOS.Application.Security;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -246,5 +248,157 @@ public sealed class ReportRoleAuthorizationTests
         Assert.Equal(terminalId, dto.TerminalId);
         Assert.Equal("POS-T1", dto.TerminalCode);
         Assert.NotNull(dto.SessionStatus);
+    }
+// ==========================================
+    // SEC-01: Daily Sales Terminal Ownership Tests
+    // ==========================================
+
+    [Fact]
+    public async Task SEC01_Cashier_DailySales_OwnTerminal_Allowed200()
+    {
+        var (_, client, _, terminalId, cashier1Token, _, _, _, _) = await SetupRolesAsync();
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashier1Token);
+
+        // 1. Without terminal param -> defaults to session terminal -> 200 OK
+        var res1 = await client.GetAsync("/api/v1/reports/daily-sales");
+        Assert.Equal(HttpStatusCode.OK, res1.StatusCode);
+
+        // 2. With own terminal param explicitly -> 200 OK
+        var res2 = await client.GetAsync($"/api/v1/reports/daily-sales?terminalId={terminalId}");
+        Assert.Equal(HttpStatusCode.OK, res2.StatusCode);
+    }
+
+    [Fact]
+    public async Task SEC01_Cashier_DailySales_DifferentTerminal_Forbidden403()
+    {
+        var (_, client, ownerToken, _, cashier1Token, _, _, _, _) = await SetupRolesAsync();
+
+        // Register a second terminal
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+        var t2Res = await client.PostAsJsonAsync("/api/v1/terminals", new RegisterTerminalRequest("POS-T2", "Secondary Terminal"));
+        var terminal2Id = (await t2Res.Content.ReadFromJsonAsync<ApiResponse<TerminalDto>>())!.Data!.Id;
+
+        // Cashier 1 requests daily sales for Terminal 2 -> 403 Forbidden
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashier1Token);
+        var res = await client.GetAsync($"/api/v1/reports/daily-sales?terminalId={terminal2Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.NotNull(body);
+        Assert.Equal("FORBIDDEN", body.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SEC01_Cashier_DailySales_MissingTerminalBinding_Forbidden403()
+    {
+        var (factory, client, _, _, _, cashier1Id, _, _, _) = await SetupRolesAsync();
+
+        // Cashier 1 token without terminal binding generated via session manager
+        var sessionManager = factory.Services.GetRequiredService<ISessionManager>();
+        var cashierNoTerminalToken = sessionManager.CreateSession(
+            cashier1Id, "cashier_one", "Cashier One", RoleType.Cashier, terminalId: null, TimeSpan.FromHours(8));
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierNoTerminalToken);
+        var res = await client.GetAsync("/api/v1/reports/daily-sales");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.NotNull(body);
+        Assert.Equal("TERMINAL_REQUIRED", body.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SEC01_ManagerAndAdminAndOwner_DailySales_StoreWideNullTerminal_Allowed200()
+    {
+        var (_, client, ownerToken, _, _, _, _, managerToken, adminToken) = await SetupRolesAsync();
+
+        // Manager store-wide daily sales (no terminalId param) -> 200 OK
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+        var mgrRes = await client.GetAsync("/api/v1/reports/daily-sales");
+        Assert.Equal(HttpStatusCode.OK, mgrRes.StatusCode);
+
+        // Admin store-wide daily sales -> 200 OK
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var adminRes = await client.GetAsync("/api/v1/reports/daily-sales");
+        Assert.Equal(HttpStatusCode.OK, adminRes.StatusCode);
+
+        // Owner store-wide daily sales -> 200 OK
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+        var ownerRes = await client.GetAsync("/api/v1/reports/daily-sales");
+        Assert.Equal(HttpStatusCode.OK, ownerRes.StatusCode);
+    }
+
+    // ==========================================
+    // SEC-02: Daily Sales CSV Export Ownership Tests
+    // ==========================================
+
+    [Fact]
+    public async Task SEC02_Cashier_DailySalesCsv_OwnTerminal_Allowed200()
+    {
+        var (_, client, _, terminalId, cashier1Token, _, _, _, _) = await SetupRolesAsync();
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashier1Token);
+
+        // 1. Without terminal param -> defaults to session terminal -> 200 OK with text/csv
+        var res1 = await client.GetAsync("/api/v1/reports/daily-sales/csv");
+        Assert.Equal(HttpStatusCode.OK, res1.StatusCode);
+        Assert.Contains("text/csv", res1.Content.Headers.ContentType?.ToString());
+
+        // 2. With own terminal param explicitly -> 200 OK
+        var res2 = await client.GetAsync($"/api/v1/reports/daily-sales/csv?terminalId={terminalId}");
+        Assert.Equal(HttpStatusCode.OK, res2.StatusCode);
+        Assert.Contains("text/csv", res2.Content.Headers.ContentType?.ToString());
+    }
+
+    [Fact]
+    public async Task SEC02_Cashier_DailySalesCsv_DifferentTerminal_Forbidden403()
+    {
+        var (_, client, ownerToken, _, cashier1Token, _, _, _, _) = await SetupRolesAsync();
+
+        // Register a second terminal
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+        var t2Res = await client.PostAsJsonAsync("/api/v1/terminals", new RegisterTerminalRequest("POS-T2", "Secondary Terminal"));
+        var terminal2Id = (await t2Res.Content.ReadFromJsonAsync<ApiResponse<TerminalDto>>())!.Data!.Id;
+
+        // Cashier 1 exports daily sales CSV for Terminal 2 -> 403 Forbidden
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashier1Token);
+        var res = await client.GetAsync($"/api/v1/reports/daily-sales/csv?terminalId={terminal2Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.NotNull(body);
+        Assert.Equal("FORBIDDEN", body.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SEC02_Cashier_DailySalesCsv_MissingTerminalBinding_Forbidden403()
+    {
+        var (factory, client, _, _, _, cashier1Id, _, _, _) = await SetupRolesAsync();
+
+        // Cashier 1 token without terminal binding generated via session manager
+        var sessionManager = factory.Services.GetRequiredService<ISessionManager>();
+        var cashierNoTerminalToken = sessionManager.CreateSession(
+            cashier1Id, "cashier_one", "Cashier One", RoleType.Cashier, terminalId: null, TimeSpan.FromHours(8));
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashierNoTerminalToken);
+        var res = await client.GetAsync("/api/v1/reports/daily-sales/csv");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.NotNull(body);
+        Assert.Equal("TERMINAL_REQUIRED", body.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SEC02_Manager_DailySalesCsv_StoreWide_Allowed200()
+    {
+        var (_, client, _, _, _, _, _, managerToken, _) = await SetupRolesAsync();
+
+        // Manager store-wide daily sales CSV -> 200 OK
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+        var res = await client.GetAsync("/api/v1/reports/daily-sales/csv");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Contains("text/csv", res.Content.Headers.ContentType?.ToString());
     }
 }

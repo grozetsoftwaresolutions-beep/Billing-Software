@@ -301,6 +301,17 @@ public sealed class ReportService : IReportService
 
             if (normalizedType == "cashier-summary" && query.CashierUserId.HasValue && query.CashierUserId.Value != executingUserId)
                 throw new DomainException("Cashiers are only authorized to view their own summary.", "FORBIDDEN");
+
+            if (normalizedType == "daily-sales")
+            {
+                if (!terminalId.HasValue || terminalId.Value == Guid.Empty)
+                    throw new DomainException("Cashier session is not bound to a registered terminal.", "TERMINAL_REQUIRED");
+
+                if (query.TerminalId.HasValue && query.TerminalId.Value != terminalId.Value)
+                    throw new DomainException("Cashiers are only authorized to view daily sales for their own terminal.", "FORBIDDEN");
+
+                query = query with { TerminalId = terminalId.Value };
+            }
         }
 
         using var writer = new StreamWriter(outputStream, new UTF8Encoding(true), bufferSize: 4096, leaveOpen: true);

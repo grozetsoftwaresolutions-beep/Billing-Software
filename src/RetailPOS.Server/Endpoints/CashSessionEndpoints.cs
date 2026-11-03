@@ -106,23 +106,58 @@ public static class CashSessionEndpoints
         })
         .RequireRole(RoleType.Manager, RoleType.Admin, RoleType.Owner);
 
+        static Guid? GetSessionTerminalId(HttpContext httpContext)
+        {
+            if (httpContext.Items.TryGetValue("CurrentSessionTerminalId", out var tIdObj) && tIdObj is Guid tId)
+                return tId;
+            if (httpContext.Items.TryGetValue("CurrentTerminalId", out var tIdObj2) && tIdObj2 is Guid tId2)
+                return tId2;
+            return null;
+        }
+
         group.MapGet("/{id:guid}/x-report", async (
             Guid id,
             ICashSessionService service,
+            HttpContext httpContext,
             CancellationToken ct) =>
         {
-            var result = await service.GetXReportAsync(id, ct);
-            return result.Success ? Results.Ok(result) : Results.NotFound(result);
+            var userId = httpContext.Items.TryGetValue("CurrentUserId", out var uId) && uId is Guid g ? g : (Guid?)null;
+            var role = httpContext.Items.TryGetValue("CurrentUserRole", out var r) && r is RoleType rt ? rt : (RoleType?)null;
+            var sessionTerminalId = GetSessionTerminalId(httpContext);
+
+            var result = await service.GetXReportAsync(id, userId, role, sessionTerminalId, ct);
+            if (result.Success)
+                return Results.Ok(result);
+
+            return result.ErrorCode switch
+            {
+                "SESSION_NOT_FOUND" => Results.NotFound(result),
+                "FORBIDDEN" or "TERMINAL_REQUIRED" => Results.Json(result, statusCode: StatusCodes.Status403Forbidden),
+                _ => Results.BadRequest(result)
+            };
         })
         .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner);
 
         group.MapGet("/{id:guid}/z-report", async (
             Guid id,
             ICashSessionService service,
+            HttpContext httpContext,
             CancellationToken ct) =>
         {
-            var result = await service.GetZReportAsync(id, ct);
-            return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+            var userId = httpContext.Items.TryGetValue("CurrentUserId", out var uId) && uId is Guid g ? g : (Guid?)null;
+            var role = httpContext.Items.TryGetValue("CurrentUserRole", out var r) && r is RoleType rt ? rt : (RoleType?)null;
+            var sessionTerminalId = GetSessionTerminalId(httpContext);
+
+            var result = await service.GetZReportAsync(id, userId, role, sessionTerminalId, ct);
+            if (result.Success)
+                return Results.Ok(result);
+
+            return result.ErrorCode switch
+            {
+                "SESSION_NOT_FOUND" => Results.NotFound(result),
+                "FORBIDDEN" or "TERMINAL_REQUIRED" => Results.Json(result, statusCode: StatusCodes.Status403Forbidden),
+                _ => Results.BadRequest(result)
+            };
         })
         .RequireRole(RoleType.Cashier, RoleType.Manager, RoleType.Admin, RoleType.Owner);
     }

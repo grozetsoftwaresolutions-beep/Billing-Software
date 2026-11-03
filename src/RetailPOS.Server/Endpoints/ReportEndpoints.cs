@@ -26,6 +26,34 @@ public static class ReportEndpoints
             return null;
         }
 
+        // SEC-01 & SEC-02: Helper to validate daily sales terminal access
+        static (bool IsValid, Guid? EffectiveTerminalId, IResult? FailureResult) ValidateDailySalesTerminalAccess(
+            RoleType role,
+            Guid? requestedTerminalId,
+            Guid? sessionTerminalId)
+        {
+            if (role == RoleType.Cashier)
+            {
+                if (!sessionTerminalId.HasValue || sessionTerminalId.Value == Guid.Empty)
+                {
+                    return (false, null, Results.Json(
+                        ApiResponse.Fail<object>("Cashier session is not bound to a registered terminal.", "TERMINAL_REQUIRED"),
+                        statusCode: StatusCodes.Status403Forbidden));
+                }
+
+                if (requestedTerminalId.HasValue && requestedTerminalId.Value != sessionTerminalId.Value)
+                {
+                    return (false, null, Results.Json(
+                        ApiResponse.Fail<object>("Cashiers are only authorized to view daily sales for their own terminal.", "FORBIDDEN"),
+                        statusCode: StatusCodes.Status403Forbidden));
+                }
+
+                return (true, sessionTerminalId.Value, null);
+            }
+
+            return (true, requestedTerminalId, null);
+        }
+
         // 1. Daily Sales Summary (Cashier, Manager, Admin, Owner)
         group.MapGet("/daily-sales", async (
             DateTime? fromDate,
@@ -36,8 +64,14 @@ public static class ReportEndpoints
             CancellationToken ct) =>
         {
             var username = (string)httpContext.Items["CurrentUsername"]!;
+            var role = (RoleType)httpContext.Items["CurrentUserRole"]!;
             var sessionTerminalId = GetSessionTerminalId(httpContext);
-            var query = new ReportDateRangeQuery(fromDate, toDate, terminalId ?? sessionTerminalId);
+
+            var (isValid, effectiveTerminalId, failureResult) = ValidateDailySalesTerminalAccess(role, terminalId, sessionTerminalId);
+            if (!isValid)
+                return failureResult!;
+
+            var query = new ReportDateRangeQuery(fromDate, toDate, effectiveTerminalId);
             var result = await service.GetDailySalesSummaryAsync(query, username, ct);
             return result.Success ? Results.Ok(result) : Results.BadRequest(result);
         })
@@ -312,10 +346,20 @@ public static class ReportEndpoints
                 }
             }
 
+            var (isValid, effectiveTerminalId, failureResult) = ValidateDailySalesTerminalAccess(
+                role,
+                terminalId,
+                sessionTerminalId);
+
+            if (normalizedType == "daily-sales" && !isValid)
+            {
+                return failureResult!;
+            }
+
             var query = new ReportDateRangeQuery(
                 fromDate,
                 toDate,
-                terminalId ?? sessionTerminalId,
+                normalizedType == "daily-sales" ? effectiveTerminalId : (terminalId ?? sessionTerminalId),
                 cashierUserId,
                 categoryId,
                 supplierId,

@@ -229,11 +229,20 @@ public sealed class CashSessionService : ICashSessionService
         return ApiResponse.Ok(MapToDto(session));
     }
 
-    public async Task<ApiResponse<CashSessionReportDto>> GetXReportAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<CashSessionReportDto>> GetXReportAsync(
+        Guid sessionId,
+        Guid? callerUserId = null,
+        RoleType? callerRole = null,
+        Guid? callerTerminalId = null,
+        CancellationToken cancellationToken = default)
     {
         var session = await _sessionRepo.GetByIdAsync(sessionId, cancellationToken);
         if (session == null)
             return ApiResponse.Fail<CashSessionReportDto>("Cash session not found.", "SESSION_NOT_FOUND");
+
+        var authResult = ValidateReportAccess(session, callerUserId, callerRole, callerTerminalId);
+        if (authResult != null)
+            return authResult;
 
         var txs = await _sessionRepo.GetTransactionsBySessionIdAsync(sessionId, cancellationToken);
         var txDtos = txs.Select(MapTxToDto).ToList();
@@ -248,11 +257,20 @@ public sealed class CashSessionService : ICashSessionService
         return ApiResponse.Ok(report);
     }
 
-    public async Task<ApiResponse<CashSessionReportDto>> GetZReportAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<CashSessionReportDto>> GetZReportAsync(
+        Guid sessionId,
+        Guid? callerUserId = null,
+        RoleType? callerRole = null,
+        Guid? callerTerminalId = null,
+        CancellationToken cancellationToken = default)
     {
         var session = await _sessionRepo.GetByIdAsync(sessionId, cancellationToken);
         if (session == null)
             return ApiResponse.Fail<CashSessionReportDto>("Cash session not found.", "SESSION_NOT_FOUND");
+
+        var authResult = ValidateReportAccess(session, callerUserId, callerRole, callerTerminalId);
+        if (authResult != null)
+            return authResult;
 
         if (session.Status != CashSessionStatus.Closed)
             return ApiResponse.Fail<CashSessionReportDto>("Z-Report is only available for closed cash sessions.", "SESSION_NOT_CLOSED");
@@ -268,6 +286,30 @@ public sealed class CashSessionService : ICashSessionService
             txDtos);
 
         return ApiResponse.Ok(report);
+    }
+
+    private static ApiResponse<CashSessionReportDto>? ValidateReportAccess(
+        CashSession session,
+        Guid? callerUserId,
+        RoleType? callerRole,
+        Guid? callerTerminalId)
+    {
+        if (callerRole != RoleType.Cashier)
+            return null;
+
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+            return ApiResponse.Fail<CashSessionReportDto>("Authenticated cashier identity is required.", "FORBIDDEN");
+
+        if (!callerTerminalId.HasValue || callerTerminalId.Value == Guid.Empty)
+            return ApiResponse.Fail<CashSessionReportDto>("Cashier session is not bound to a registered terminal.", "TERMINAL_REQUIRED");
+
+        if (session.CashierUserId != callerUserId.Value)
+            return ApiResponse.Fail<CashSessionReportDto>("Cashiers are only authorized to view reports for their own cash sessions.", "FORBIDDEN");
+
+        if (session.TerminalId != callerTerminalId.Value)
+            return ApiResponse.Fail<CashSessionReportDto>("Cashiers are only authorized to view reports for sessions on their assigned terminal.", "FORBIDDEN");
+
+        return null;
     }
 
     private static CashSessionDto MapToDto(CashSession s) => new(
