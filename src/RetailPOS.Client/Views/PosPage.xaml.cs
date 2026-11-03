@@ -221,6 +221,39 @@ public sealed partial class PosPage : Page
         SearchBox.Focus(FocusState.Programmatic);
     }
 
+    private void OnBackToHomeClicked(object sender, RoutedEventArgs e)
+    {
+        ShellPage.Current?.NavigateTo("Home");
+    }
+
+    private void OnF2SearchClicked(object sender, RoutedEventArgs e)
+    {
+        SearchBox.Focus(FocusState.Programmatic);
+        SearchBox.SelectAll();
+        if (!string.IsNullOrWhiteSpace(SearchBox.Text))
+        {
+            _ = ViewModel.SearchProductsAsync();
+        }
+    }
+
+    private void OnF4NewBillClicked(object sender, RoutedEventArgs e)
+    {
+        ViewModel.NewBill();
+        SearchBox.Focus(FocusState.Programmatic);
+    }
+
+    private void OnF12CheckoutClicked(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.IsPaymentOpen)
+        {
+            _ = ViewModel.ExecuteCheckoutAsync();
+        }
+        else if (ViewModel.CanCheckout)
+        {
+            ViewModel.OpenPayment();
+        }
+    }
+
     private void OnViewInSalesHistoryClicked(object sender, RoutedEventArgs e)
     {
         ViewModel.NewBill();

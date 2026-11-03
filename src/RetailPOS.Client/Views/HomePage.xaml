@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:RetailPOS.Client.ViewModels"
     mc:Ignorable="d"
+    RequestedTheme="Light"
     Background="#F8FAFC">
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="32">
@@ -69,7 +70,7 @@
                                 </StackPanel>
                             </StackPanel>
                             <TextBlock Grid.Row="1" Text="Counter checkout, barcode scanner wedge listener, cart calculation, payment processing, and thermal receipt printing." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
-                            <Button Grid.Row="2" Content="Open POS Module" Click="OnNavigateToPosClicked" HorizontalAlignment="Left" Style="{ThemeResource AccentButtonStyle}" Background="#1E3E62" />
+                            <Button Grid.Row="2" Content="Open POS Module" Click="OnNavigateToPosClicked" HorizontalAlignment="Left" Background="#1E3E62" Foreground="White" FontWeight="SemiBold" Padding="16, 8" CornerRadius="6" />
                         </Grid>
                     </Border>
 
@@ -91,7 +92,7 @@
                                 </StackPanel>
                             </StackPanel>
                             <TextBlock Grid.Row="1" Text="Product catalog lookup, barcode definitions, pricing tiers, stock level verification, and supplier integration via server API." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
-                            <Button Grid.Row="2" Content="Open Products Module" Click="OnNavigateToProductsClicked" HorizontalAlignment="Left" />
+                            <Button Grid.Row="2" Content="Open Products Module" Click="OnNavigateToProductsClicked" HorizontalAlignment="Left" Background="#2563EB" Foreground="White" FontWeight="SemiBold" Padding="16, 8" CornerRadius="6" />
                         </Grid>
                     </Border>
 
@@ -113,7 +114,7 @@
                                 </StackPanel>
                             </StackPanel>
                             <TextBlock Grid.Row="1" Text="Daily sales metrics, shift reconciliation, tax reporting, audit exports, and cashier performance breakdown." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
-                            <Button Grid.Row="2" Content="Open Reports Module" Click="OnNavigateToReportsClicked" HorizontalAlignment="Left" />
+                            <Button Grid.Row="2" Content="Open Reports Module" Click="OnNavigateToReportsClicked" HorizontalAlignment="Left" Background="#D97706" Foreground="White" FontWeight="SemiBold" Padding="16, 8" CornerRadius="6" />
                         </Grid>
                     </Border>
 
@@ -135,7 +136,7 @@
                                 </StackPanel>
                             </StackPanel>
                             <TextBlock Grid.Row="1" Text="Terminal enrollment, SRP-6a pairing, server endpoint configuration, hardware peripheral selection, and diagnostics." FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,0,0,16" />
-                            <Button Grid.Row="2" Content="Open Settings Module" Click="OnNavigateToSettingsClicked" HorizontalAlignment="Left" />
+                            <Button Grid.Row="2" Content="Open Settings Module" Click="OnNavigateToSettingsClicked" HorizontalAlignment="Left" Background="#475569" Foreground="White" FontWeight="SemiBold" Padding="16, 8" CornerRadius="6" />
                         </Grid>
                     </Border>
                 </Grid>

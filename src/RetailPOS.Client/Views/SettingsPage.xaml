@@ -1,0 +1,189 @@
+<Page
+    x:Class="RetailPOS.Client.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:RetailPOS.Client.Views.Controls"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d"
+    RequestedTheme="Light"
+    Background="#F8FAFC">
+
+    <Grid>
+        <!-- Access Denied State (Cashier, Viewer) -->
+        <Border Visibility="{x:Bind AccessDeniedVisibility, Mode=OneWay}"
+                Background="White"
+                CornerRadius="16"
+                BorderBrush="#E2E8F0"
+                BorderThickness="1"
+                Padding="40"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MaxWidth="500">
+            <StackPanel Spacing="16" HorizontalAlignment="Center">
+                <Border Width="64" Height="64" Background="#FEF2F2" CornerRadius="32" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE72E;" FontSize="32" Foreground="#DC2626" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+
+                <TextBlock Text="Access Restricted" FontSize="20" FontWeight="Bold" Foreground="#0F172A" HorizontalAlignment="Center" />
+                <TextBlock Text="The Settings &amp; Administration workspace is restricted to Owner and Administrator roles. Your current role does not possess administrative privileges."
+                           FontSize="13" Foreground="#64748B" TextWrapping="Wrap" TextAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Main Authorized Content -->
+        <Grid RowSpacing="16" Padding="24" Visibility="{x:Bind AuthorizedVisibility, Mode=OneWay}">
+            <Grid.RowDefinitions>
+                <!-- 0: Header & Role Badge -->
+                <RowDefinition Height="Auto" />
+                <!-- 1: Notification & Feedback Alerts -->
+                <RowDefinition Height="Auto" />
+                <!-- 2: Tab Navigation Bar -->
+                <RowDefinition Height="Auto" />
+                <!-- 3: Tab Content Host -->
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- 0. Header & Role Badge -->
+            <Border Grid.Row="0" Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24, 18">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: Title & Module Context -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <Border Width="44" Height="44" Background="#EFF6FF" CornerRadius="10" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE713;" FontSize="22" Foreground="#2563EB" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <TextBlock Text="Settings &amp; Administration Workspace" FontSize="20" FontWeight="Bold" Foreground="#0F172A" />
+                                <Border Background="{x:Bind RoleBadgeBackground, Mode=OneWay}" CornerRadius="12" Padding="8, 2" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind RoleBadgeText, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind RoleBadgeForeground, Mode=OneWay}" />
+                                </Border>
+                            </StackPanel>
+                            <TextBlock Text="Store profile, security parameters, hardware diagnostics, terminal enrollment, staff accounts, and backups"
+                                       FontSize="12" Foreground="#64748B" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 1. Notification & Feedback InfoBars -->
+            <StackPanel Grid.Row="1" Spacing="8">
+                <InfoBar IsOpen="{x:Bind HasErrorMessage, Mode=OneWay}"
+                         Severity="Error"
+                         Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                         IsClosable="True"
+                         AutomationProperties.AutomationId="SettingsErrorInfoBar" />
+
+                <InfoBar IsOpen="{x:Bind HasStatusMessage, Mode=OneWay}"
+                         Severity="Success"
+                         Message="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                         IsClosable="True"
+                         AutomationProperties.AutomationId="SettingsStatusInfoBar" />
+
+                <ProgressBar IsIndeterminate="True"
+                             Visibility="{x:Bind LoadingVisibility, Mode=OneWay}"
+                             AutomationProperties.AutomationId="SettingsProgressBar" />
+            </StackPanel>
+
+            <!-- 2. Administrative Tab Selection Bar -->
+            <Border Grid.Row="2" Background="White" CornerRadius="10" BorderBrush="#E2E8F0" BorderThickness="1" Padding="8, 6">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <!-- Tab 0: Store Settings -->
+                        <Button Content="Store Settings"
+                                Click="OnTab0Clicked"
+                                Background="{x:Bind Tab0Background, Mode=OneWay}"
+                                Foreground="{x:Bind Tab0Foreground, Mode=OneWay}"
+                                FontWeight="{x:Bind Tab0FontWeight, Mode=OneWay}"
+                                CornerRadius="8"
+                                Padding="16, 8"
+                                AutomationProperties.AutomationId="TabStoreSettings" />
+
+                        <!-- Tab 1: Security & Failsafe -->
+                        <Button Content="Security &amp; Failsafe"
+                                Click="OnTab1Clicked"
+                                Background="{x:Bind Tab1Background, Mode=OneWay}"
+                                Foreground="{x:Bind Tab1Foreground, Mode=OneWay}"
+                                FontWeight="{x:Bind Tab1FontWeight, Mode=OneWay}"
+                                CornerRadius="8"
+                                Padding="16, 8"
+                                AutomationProperties.AutomationId="TabSecuritySettings" />
+
+                        <!-- Tab 2: Hardware & Diagnostics -->
+                        <Button Content="Hardware &amp; Diagnostics"
+                                Click="OnTab2Clicked"
+                                Background="{x:Bind Tab2Background, Mode=OneWay}"
+                                Foreground="{x:Bind Tab2Foreground, Mode=OneWay}"
+                                FontWeight="{x:Bind Tab2FontWeight, Mode=OneWay}"
+                                CornerRadius="8"
+                                Padding="16, 8"
+                                AutomationProperties.AutomationId="TabHardwareSettings" />
+
+                        <!-- Tab 3: Terminals Fleet -->
+                        <Button Content="Terminals Management"
+                                Click="OnTab3Clicked"
+                                Background="{x:Bind Tab3Background, Mode=OneWay}"
+                                Foreground="{x:Bind Tab3Foreground, Mode=OneWay}"
+                                FontWeight="{x:Bind Tab3FontWeight, Mode=OneWay}"
+                                CornerRadius="8"
+                                Padding="16, 8"
+                                AutomationProperties.AutomationId="TabTerminalsManagement" />
+
+                        <!-- Tab 4: Staff & Roles -->
+                        <Button Content="Staff &amp; Roles"
+                                Click="OnTab4Clicked"
+                                Background="{x:Bind Tab4Background, Mode=OneWay}"
+                                Foreground="{x:Bind Tab4Foreground, Mode=OneWay}"
+                                FontWeight="{x:Bind Tab4FontWeight, Mode=OneWay}"
+                                CornerRadius="8"
+                                Padding="16, 8"
+                                AutomationProperties.AutomationId="TabStaffManagement" />
+
+                        <!-- Tab 5: Backups -->
+                        <Button Content="Database Backups"
+                                Click="OnTab5Clicked"
+                                Background="{x:Bind Tab5Background, Mode=OneWay}"
+                                Foreground="{x:Bind Tab5Foreground, Mode=OneWay}"
+                                FontWeight="{x:Bind Tab5FontWeight, Mode=OneWay}"
+                                CornerRadius="8"
+                                Padding="16, 8"
+                                AutomationProperties.AutomationId="TabBackups" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- 3. Active Tab Content Host -->
+            <Grid Grid.Row="3">
+                <!-- Tab 0: Store Settings -->
+                <controls:StoreSettingsTab DataContext="{x:Bind ViewModel}"
+                                           Visibility="{x:Bind Tab0Visibility, Mode=OneWay}" />
+
+                <!-- Tab 1: Security Settings -->
+                <controls:SecuritySettingsTab DataContext="{x:Bind ViewModel}"
+                                              Visibility="{x:Bind Tab1Visibility, Mode=OneWay}" />
+
+                <!-- Tab 2: Hardware Settings & Diagnostics -->
+                <controls:HardwareSettingsTab DataContext="{x:Bind ViewModel}"
+                                              Visibility="{x:Bind Tab2Visibility, Mode=OneWay}" />
+
+                <!-- Tab 3: Terminals Management -->
+                <controls:TerminalsTab DataContext="{x:Bind ViewModel}"
+                                       Visibility="{x:Bind Tab3Visibility, Mode=OneWay}" />
+
+                <!-- Tab 4: Staff Management -->
+                <controls:StaffTab DataContext="{x:Bind ViewModel}"
+                                   Visibility="{x:Bind Tab4Visibility, Mode=OneWay}" />
+
+                <!-- Tab 5: Backups -->
+                <controls:BackupsTab DataContext="{x:Bind ViewModel}"
+                                     Visibility="{x:Bind Tab5Visibility, Mode=OneWay}" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

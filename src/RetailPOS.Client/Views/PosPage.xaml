@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:RetailPOS.Client.ViewModels"
     mc:Ignorable="d"
+    RequestedTheme="Light"
     Background="#F8FAFC">
 
     <Grid>
@@ -27,9 +28,23 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Column="0" Width="36" Height="36" Background="#EFF6FF" CornerRadius="8" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xE7BF;" FontSize="18" Foreground="#2563EB" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Click="OnBackToHomeClicked"
+                                ToolTipService.ToolTip="Return to Home / Dashboard"
+                                Background="#F1F5F9"
+                                Foreground="#1E3E62"
+                                FontWeight="SemiBold"
+                                Padding="10, 6"
+                                CornerRadius="8">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE80F;" FontSize="14" Foreground="#1E3E62" />
+                                <TextBlock Text="Home" FontSize="12" FontWeight="Bold" />
+                            </StackPanel>
+                        </Button>
+                        <Border Width="36" Height="36" Background="#EFF6FF" CornerRadius="8" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE7BF;" FontSize="18" Foreground="#2563EB" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </StackPanel>
 
                     <Grid Grid.Column="1" VerticalAlignment="Center">
                         <TextBox x:Name="SearchBox"
@@ -49,15 +64,33 @@
                             Padding="16, 8" />
 
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Border Background="#F1F5F9" CornerRadius="6" Padding="8, 4">
-                            <TextBlock Text="F2 Search" FontSize="11" FontWeight="Bold" Foreground="#475569" />
-                        </Border>
-                        <Border Background="#F1F5F9" CornerRadius="6" Padding="8, 4">
-                            <TextBlock Text="F4 New Bill" FontSize="11" FontWeight="Bold" Foreground="#475569" />
-                        </Border>
-                        <Border Background="#F1F5F9" CornerRadius="6" Padding="8, 4">
-                            <TextBlock Text="F12 Checkout" FontSize="11" FontWeight="Bold" Foreground="#475569" />
-                        </Border>
+                        <Button Content="F2 Search"
+                                Click="OnF2SearchClicked"
+                                Background="#F1F5F9"
+                                Foreground="#334155"
+                                FontWeight="Bold"
+                                FontSize="11"
+                                Padding="10, 6"
+                                CornerRadius="6"
+                                ToolTipService.ToolTip="Focus search box (F2)" />
+                        <Button Content="F4 New Bill"
+                                Click="OnF4NewBillClicked"
+                                Background="#F1F5F9"
+                                Foreground="#334155"
+                                FontWeight="Bold"
+                                FontSize="11"
+                                Padding="10, 6"
+                                CornerRadius="6"
+                                ToolTipService.ToolTip="Start fresh bill (F4)" />
+                        <Button Content="F12 Checkout"
+                                Click="OnF12CheckoutClicked"
+                                Background="#15803D"
+                                Foreground="White"
+                                FontWeight="Bold"
+                                FontSize="11"
+                                Padding="10, 6"
+                                CornerRadius="6"
+                                ToolTipService.ToolTip="Pay and checkout (F12)" />
                     </StackPanel>
                 </Grid>
             </Border>

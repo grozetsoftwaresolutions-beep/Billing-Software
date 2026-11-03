@@ -1,0 +1,179 @@
+<UserControl
+    x:Class="RetailPOS.Client.Views.Controls.StaffTab"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,16,16">
+        <StackPanel Spacing="20" MaxWidth="960" HorizontalAlignment="Left">
+            <!-- Add New Staff User Card -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Create New Staff Account" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Username -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Username *" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox Text="{x:Bind ViewModel.NewUsername, Mode=TwoWay}"
+                                     PlaceholderText="e.g., cashier_01"
+                                     AutomationProperties.AutomationId="NewUsernameTextBox" />
+                        </StackPanel>
+
+                        <!-- Full Name -->
+                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Full Name *" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox Text="{x:Bind ViewModel.NewFullName, Mode=TwoWay}"
+                                     PlaceholderText="e.g., Rahul Sharma"
+                                     AutomationProperties.AutomationId="NewFullNameTextBox" />
+                        </StackPanel>
+
+                        <!-- Password -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Initial Password *" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <PasswordBox Password="{x:Bind ViewModel.NewPassword, Mode=TwoWay}"
+                                         AutomationProperties.AutomationId="NewPasswordBox" />
+                        </StackPanel>
+
+                        <!-- PIN -->
+                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Terminal Quick-Access PIN (4-6 Digits) *" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <PasswordBox Password="{x:Bind ViewModel.NewPin, Mode=TwoWay}"
+                                         MaxLength="6"
+                                         AutomationProperties.AutomationId="NewPinBox" />
+                        </StackPanel>
+
+                        <!-- Role -->
+                        <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Role Assignment *" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <ComboBox SelectedIndex="{x:Bind NewUserRoleIndex, Mode=TwoWay}" Width="240"
+                                      AutomationProperties.AutomationId="NewUserRoleCombo">
+                                <ComboBoxItem Content="Cashier" />
+                                <ComboBoxItem Content="Manager" />
+                                <ComboBoxItem Content="Viewer" />
+                                <ComboBoxItem Content="Admin" />
+                                <ComboBoxItem Content="Owner" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Submit Button -->
+                        <StackPanel Grid.Row="2" Grid.Column="1" VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="12">
+                            <Button Content="Create Account"
+                                    Click="OnCreateUserClicked"
+                                    Background="#2563EB"
+                                    Foreground="White"
+                                    FontWeight="SemiBold"
+                                    Padding="20,8"
+                                    CornerRadius="6"
+                                    AutomationProperties.AutomationId="CreateUserButton" />
+
+                            <Button Content="Refresh List"
+                                    Click="OnRefreshClicked"
+                                    AutomationProperties.AutomationId="RefreshStaffButton" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Staff Members Directory Card -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Staff Accounts &amp; Permissions" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <!-- Users Items List -->
+                    <ListView ItemsSource="{x:Bind ViewModel.Users, Mode=OneWay}"
+                              SelectionMode="None"
+                              AutomationProperties.AutomationId="StaffListView">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:UserItemViewModel">
+                                <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16,12" Margin="0,0,0,8">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="48" />
+                                            <ColumnDefinition Width="160" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- User Avatar Icon -->
+                                        <Border Grid.Column="0" Width="40" Height="40" Background="#F1F5F9" CornerRadius="20">
+                                            <FontIcon Glyph="&#xE77B;" FontSize="18" Foreground="#64748B" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+
+                                        <!-- Username & Full Name -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{x:Bind Username}" FontWeight="Bold" FontSize="14" Foreground="#0F172A" />
+                                            <TextBlock Text="{x:Bind FullName}" FontSize="12" Foreground="#64748B" />
+                                        </StackPanel>
+
+                                        <!-- User ID -->
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Id}" FontFamily="Consolas" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center" />
+
+                                        <!-- Role Badge -->
+                                        <Border Grid.Column="3"
+                                                Background="#E0E7FF"
+                                                CornerRadius="6"
+                                                Padding="8,4"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Role}" FontSize="11" FontWeight="Bold" Foreground="#4338CA" />
+                                        </Border>
+
+                                        <!-- Status Badge -->
+                                        <Border Grid.Column="4"
+                                                Background="{x:Bind StatusBadgeColor}"
+                                                CornerRadius="6"
+                                                Padding="8,4"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind StatusText}" FontSize="11" FontWeight="Bold" Foreground="White" />
+                                        </Border>
+
+                                        <!-- Action Buttons -->
+                                        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <!-- Unlock button (visible when locked) -->
+                                            <Button Content="Unlock"
+                                                    Click="OnUnlockClicked"
+                                                    Visibility="{x:Bind IsLocked}"
+                                                    AutomationProperties.AutomationId="UnlockUserButton" />
+
+                                            <!-- Activate / Deactivate button -->
+                                            <Button Content="{x:Bind ToggleActiveButtonText}"
+                                                    Click="OnToggleUserActiveClicked"
+                                                    AutomationProperties.AutomationId="ToggleUserActiveButton" />
+
+                                            <!-- Reset Credentials button -->
+                                            <Button Content="Reset Password/PIN"
+                                                    Click="OnResetCredentialsClicked"
+                                                    AutomationProperties.AutomationId="ResetCredentialsButton" />
+
+                                            <!-- Role Modification (Strictly Owner-only) -->
+                                            <Button Content="Change Role"
+                                                    Click="OnChangeRoleClicked"
+                                                    AutomationProperties.AutomationId="ChangeRoleButton" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

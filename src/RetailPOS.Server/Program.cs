@@ -65,19 +65,43 @@ builder.Host.UseSerilog((context, services, configuration) =>
 });
 
 // Configure Kestrel bindings: Localhost for single-PC or 0.0.0.0 for wired LAN
-builder.WebHost.ConfigureKestrel(options =>
+builder.WebHost.ConfigureKestrel((context, options) =>
 {
-    var listenAddress = serverOptions.BindToAllInterfaces ? IPAddress.Any : IPAddress.Loopback;
-    options.Listen(listenAddress, serverOptions.HttpPort);
+    var config = context.Configuration;
+    var boundOptions = new ServerOptions();
+    config.GetSection(ServerOptions.SectionName).Bind(boundOptions);
 
-    if (serverOptions.UseHttps)
+    var listenAddress = boundOptions.BindToAllInterfaces ? IPAddress.Any : IPAddress.Loopback;
+    options.Listen(listenAddress, boundOptions.HttpPort);
+
+    if (boundOptions.UseHttps)
     {
-        options.Listen(listenAddress, serverOptions.HttpsPort, listenOptions =>
+        options.Listen(listenAddress, boundOptions.HttpsPort, listenOptions =>
         {
             listenOptions.UseHttps();
         });
     }
+
+    var maxBodySize = boundOptions.MaxRequestBodySizeBytes > 0
+        ? boundOptions.MaxRequestBodySizeBytes
+        : 10 * 1024 * 1024; // Ensure non-null, safe fallback to 10MB
+
+    options.Limits.MaxRequestBodySize = maxBodySize;
 });
+
+// Configure multipart form body limits aligned with MaxRequestBodySizeBytes
+builder.Services.AddOptions<Microsoft.AspNetCore.Http.Features.FormOptions>()
+    .Configure<Microsoft.Extensions.Configuration.IConfiguration>((options, config) =>
+    {
+        var boundOptions = new ServerOptions();
+        config.GetSection(ServerOptions.SectionName).Bind(boundOptions);
+
+        var maxBodySize = boundOptions.MaxRequestBodySizeBytes > 0
+            ? boundOptions.MaxRequestBodySizeBytes
+            : 10 * 1024 * 1024;
+
+        options.MultipartBodyLengthLimit = maxBodySize;
+    });
 
 // Ensure production directories exist
 serverOptions.EnsureDirectoriesCreated();

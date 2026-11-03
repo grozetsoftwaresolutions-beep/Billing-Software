@@ -1,0 +1,179 @@
+<UserControl
+    x:Class="RetailPOS.Client.Views.Controls.SecuritySettingsTab"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,16,16">
+        <StackPanel Spacing="20" MaxWidth="900" HorizontalAlignment="Left">
+            <!-- Non-Owner Role Warning (Visible when Admin) -->
+            <Border Background="#FEF2F2" BorderBrush="#FECACA" BorderThickness="1" CornerRadius="8" Padding="16,12"
+                    Visibility="{x:Bind NonOwnerWarningVisibility}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <FontIcon Glyph="&#xE7BA;" FontSize="18" Foreground="#DC2626" VerticalAlignment="Center" />
+                    <TextBlock Text="Security policies and failsafe administration require Owner role credentials. This view is read-restricted for Administrator."
+                               FontSize="13" Foreground="#991B1B" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Live Failsafe Telemetry Status Card -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="System Failsafe &amp; Tamper Telemetry" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+                            <TextBlock Text="Real-time security envelope monitoring and failsafe state" FontSize="12" Foreground="#64748B" />
+                        </StackPanel>
+
+                        <!-- Live Status Badge -->
+                        <Border Grid.Column="1"
+                                Background="{x:Bind FailsafeBadgeBrush}"
+                                CornerRadius="6"
+                                Padding="12,6"
+                                VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.FailsafeStatus, Mode=OneWay}"
+                                       FontWeight="Bold"
+                                       FontSize="12"
+                                       Foreground="White"
+                                       AutomationProperties.AutomationId="FailsafeStatusBadge" />
+                        </Border>
+                    </Grid>
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Episode ID -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Failsafe Episode ID" FontSize="12" FontWeight="Medium" Foreground="#64748B" />
+                            <TextBlock Text="{x:Bind EpisodeIdDisplay}"
+                                       FontSize="13" FontWeight="SemiBold" Foreground="#1E293B"
+                                       AutomationProperties.AutomationId="FailsafeEpisodeIdText" />
+                        </StackPanel>
+
+                        <!-- Entry Timestamp -->
+                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2">
+                            <TextBlock Text="Entry Timestamp" FontSize="12" FontWeight="Medium" Foreground="#64748B" />
+                            <TextBlock Text="{x:Bind EnteredAtDisplay}"
+                                       FontSize="13" FontWeight="SemiBold" Foreground="#1E293B"
+                                       AutomationProperties.AutomationId="FailsafeEnteredAtText" />
+                        </StackPanel>
+
+                        <!-- Reason -->
+                        <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="2">
+                            <TextBlock Text="Telemetry Reason / Status Detail" FontSize="12" FontWeight="Medium" Foreground="#64748B" />
+                            <TextBlock Text="{x:Bind ReasonDisplay}"
+                                       FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                       AutomationProperties.AutomationId="FailsafeReasonText" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Security Policy Parameters (Owner editable) -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Security &amp; Lockout Policies" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="16">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Idle Timeout Minutes -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Terminal Idle Timeout (Minutes)" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <NumberBox Value="{x:Bind ViewModel.IdleTimeoutMinutes, Mode=TwoWay}"
+                                       Minimum="1" Maximum="1440" SpinButtonPlacementMode="Compact"
+                                       IsEnabled="{x:Bind IsOwnerEditable}"
+                                       AutomationProperties.AutomationId="IdleTimeoutNumberBox" />
+                        </StackPanel>
+
+                        <!-- Max Failed PIN Attempts -->
+                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Max Failed PIN Attempts" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <NumberBox Value="{x:Bind ViewModel.MaxFailedPinAttempts, Mode=TwoWay}"
+                                       Minimum="1" Maximum="20" SpinButtonPlacementMode="Compact"
+                                       IsEnabled="{x:Bind IsOwnerEditable}"
+                                       AutomationProperties.AutomationId="MaxFailedPinAttemptsNumberBox" />
+                        </StackPanel>
+
+                        <!-- PIN Lockout Duration -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="PIN Lockout Duration (Minutes)" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <NumberBox Value="{x:Bind ViewModel.PinLockoutMinutes, Mode=TwoWay}"
+                                       Minimum="1" Maximum="1440" SpinButtonPlacementMode="Compact"
+                                       IsEnabled="{x:Bind IsOwnerEditable}"
+                                       AutomationProperties.AutomationId="PinLockoutMinutesNumberBox" />
+                        </StackPanel>
+
+                        <!-- Max Cashier Discount Percentage -->
+                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Max Cashier Discount Ceiling (%)" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox Text="{x:Bind ViewModel.MaxCashierDiscountPercentage, Mode=TwoWay}"
+                                     IsEnabled="{x:Bind IsOwnerEditable}"
+                                     AutomationProperties.AutomationId="MaxDiscountTextBox" />
+                        </StackPanel>
+
+                        <!-- Supervisor Overrides Required -->
+                        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Spacing="8">
+                            <TextBlock Text="Supervisor Authorization Requirements" FontSize="13" FontWeight="SemiBold" Foreground="#334155" />
+                            
+                            <CheckBox Content="Require Supervisor PIN for Sale Refund / Return"
+                                      IsChecked="{x:Bind ViewModel.RequireSupervisorForRefund, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind IsOwnerEditable}"
+                                      AutomationProperties.AutomationId="SupervisorRefundCheckbox" />
+
+                            <CheckBox Content="Require Supervisor PIN for Item / Cart Void"
+                                      IsChecked="{x:Bind ViewModel.RequireSupervisorForVoid, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind IsOwnerEditable}"
+                                      AutomationProperties.AutomationId="SupervisorVoidCheckbox" />
+
+                            <CheckBox Content="Require Supervisor PIN for Price Override"
+                                      IsChecked="{x:Bind ViewModel.RequireSupervisorForPriceOverride, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind IsOwnerEditable}"
+                                      AutomationProperties.AutomationId="SupervisorPriceOverrideCheckbox" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Save Security Settings Action Button -->
+            <StackPanel Orientation="Horizontal" Spacing="12" Visibility="{x:Bind OwnerControlsVisibility}">
+                <Button Content="Save Security Policies"
+                        Click="OnSaveClicked"
+                        Background="#DC2626"
+                        Foreground="White"
+                        FontWeight="SemiBold"
+                        Padding="24,10"
+                        CornerRadius="8"
+                        IsEnabled="{x:Bind IsSaveEnabled}"
+                        AutomationProperties.AutomationId="SaveSecuritySettingsButton" />
+
+                <ProgressRing IsActive="{x:Bind ViewModel.IsSaving, Mode=OneWay}"
+                              Visibility="{x:Bind SavingVisibility}"
+                              Width="24" Height="24" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

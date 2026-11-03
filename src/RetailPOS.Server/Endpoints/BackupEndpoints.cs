@@ -13,6 +13,8 @@ using RetailPOS.Contracts.Backup;
 using RetailPOS.Contracts.Common;
 using RetailPOS.Domain.Common;
 using RetailPOS.Domain.Enums;
+using RetailPOS.Domain.Security;
+using RetailPOS.Server.Middleware;
 
 public static class BackupEndpoints
 {
@@ -20,15 +22,17 @@ public static class BackupEndpoints
     {
         var group = app.MapGroup("/api/v1/backups");
 
-        // POST /api/v1/backups - Create manual backup
+        // POST /api/v1/backups - Create manual backup (Owner/Admin only)
         group.MapPost("", async (
             CreateBackupRequestDto? request,
             IBackupService backupService,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
-            var userId = httpContext.User.FindFirst("sub")?.Value ?? "SYSTEM";
-            var userName = httpContext.User.Identity?.Name ?? "Administrator";
+            var userId = httpContext.Items["CurrentUserId"]?.ToString()
+                ?? throw new InvalidOperationException("CurrentUserId is missing from authenticated context.");
+            var userName = (string?)httpContext.Items["CurrentUsername"]
+                ?? throw new InvalidOperationException("CurrentUsername is missing from authenticated context.");
 
             try
             {
@@ -43,16 +47,18 @@ public static class BackupEndpoints
             {
                 return Results.BadRequest(ApiResponse.Fail<BackupRecordDto>(ex.Message, ex.ErrorCode));
             }
-        });
+        })
+        .RequirePermission(Permission.CreateBackup);
 
-        // GET /api/v1/backups - List backup history
+        // GET /api/v1/backups - List backup history (Owner/Admin only)
         group.MapGet("", async (IBackupService backupService, CancellationToken ct) =>
         {
             var history = await backupService.GetBackupHistoryAsync(ct).ConfigureAwait(false);
             return Results.Ok(ApiResponse.Ok(history));
-        });
+        })
+        .RequirePermission(Permission.CreateBackup);
 
-        // GET /api/v1/backups/{id:guid} - Get backup details
+        // GET /api/v1/backups/{id:guid} - Get backup details (Owner/Admin only)
         group.MapGet("/{id:guid}", async (Guid id, IBackupService backupService, CancellationToken ct) =>
         {
             var record = await backupService.GetBackupByIdAsync(id, ct).ConfigureAwait(false);
@@ -61,9 +67,10 @@ public static class BackupEndpoints
                 return Results.NotFound(ApiResponse.Fail<BackupRecordDto>("Backup record not found.", "NOT_FOUND"));
             }
             return Results.Ok(ApiResponse.Ok(record));
-        });
+        })
+        .RequirePermission(Permission.CreateBackup);
 
-        // POST /api/v1/backups/verify - Verify backup file
+        // POST /api/v1/backups/verify - Verify backup file (Owner/Admin only)
         group.MapPost("/verify", async (
             RestoreBackupRequestDto request,
             IBackupService backupService,
@@ -71,9 +78,10 @@ public static class BackupEndpoints
         {
             var report = await backupService.VerifyBackupAsync(request.FileName, ct).ConfigureAwait(false);
             return Results.Ok(ApiResponse.Ok(report));
-        });
+        })
+        .RequirePermission(Permission.CreateBackup);
 
-        // POST /api/v1/backups/upload - Ingest external backup
+        // POST /api/v1/backups/upload - Ingest external backup (Owner/Admin only)
         group.MapPost("/upload", async (
             IFormFile? dbFile,
             IFormFile? manifestFile,
@@ -86,8 +94,10 @@ public static class BackupEndpoints
                 return Results.UnprocessableEntity(ApiResponse.Fail<BackupRecordDto>("Both dbFile and manifestFile are required.", "MISSING_FILES"));
             }
 
-            var userId = httpContext.User.FindFirst("sub")?.Value ?? "SYSTEM";
-            var userName = httpContext.User.Identity?.Name ?? "Administrator";
+            var userId = httpContext.Items["CurrentUserId"]?.ToString()
+                ?? throw new InvalidOperationException("CurrentUserId is missing from authenticated context.");
+            var userName = (string?)httpContext.Items["CurrentUsername"]
+                ?? throw new InvalidOperationException("CurrentUsername is missing from authenticated context.");
 
             try
             {
@@ -125,22 +135,30 @@ public static class BackupEndpoints
             {
                 return Results.BadRequest(ApiResponse.Fail<BackupRecordDto>(ex.Message, ex.ErrorCode));
             }
-        });
+        })
+        .DisableAntiforgery()
+        .RequirePermission(Permission.CreateBackup);
 
-        // POST /api/v1/backups/restore - Restore backup
+        // POST /api/v1/backups/restore - Restore backup (Owner only)
         group.MapPost("/restore", async (
             RestoreBackupRequestDto request,
             IBackupService backupService,
+            IMaintenanceScopeFactory scopeFactory,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
-            var userId = httpContext.User.FindFirst("sub")?.Value ?? "SYSTEM";
-            var userName = httpContext.User.Identity?.Name ?? "Administrator";
+            var userId = httpContext.Items["CurrentUserId"]?.ToString()
+                ?? throw new InvalidOperationException("CurrentUserId is missing from authenticated context.");
+            var userName = (string?)httpContext.Items["CurrentUsername"]
+                ?? throw new InvalidOperationException("CurrentUsername is missing from authenticated context.");
 
             try
             {
-                var record = await backupService.RestoreBackupAsync(request.FileName, userId, userName, ct).ConfigureAwait(false);
-                return Results.Ok(ApiResponse.Ok(record, "Database restored successfully."));
+                using (scopeFactory.CreateMaintenanceScope())
+                {
+                    var record = await backupService.RestoreBackupAsync(request.FileName, userId, userName, ct).ConfigureAwait(false);
+                    return Results.Ok(ApiResponse.Ok(record, "Database restored successfully."));
+                }
             }
             catch (DomainException ex) when (ex.ErrorCode == "OPERATION_ALREADY_IN_PROGRESS")
             {
@@ -154,16 +172,18 @@ public static class BackupEndpoints
             {
                 return Results.BadRequest(ApiResponse.Fail<BackupRecordDto>(ex.Message, ex.ErrorCode));
             }
-        });
+        })
+        .RequirePermission(Permission.RestoreDatabase);
 
-        // GET /api/v1/backups/settings - Get settings
+        // GET /api/v1/backups/settings - Get settings (Owner/Admin only)
         group.MapGet("/settings", async (IBackupService backupService, CancellationToken ct) =>
         {
             var settings = await backupService.GetSettingsAsync(ct).ConfigureAwait(false);
             return Results.Ok(ApiResponse.Ok(settings));
-        });
+        })
+        .RequirePermission(Permission.CreateBackup);
 
-        // PUT /api/v1/backups/settings - Update settings
+        // PUT /api/v1/backups/settings - Update settings (Owner/Admin only)
         group.MapPut("/settings", async (
             UpdateBackupSettingsDto request,
             IBackupService backupService,
@@ -171,9 +191,10 @@ public static class BackupEndpoints
         {
             var settings = await backupService.UpdateSettingsAsync(request, ct).ConfigureAwait(false);
             return Results.Ok(ApiResponse.Ok(settings, "Backup settings updated successfully."));
-        });
+        })
+        .RequirePermission(Permission.CreateBackup);
 
-        // POST /api/v1/backups/export-dr - Export encrypted portable DR package
+        // POST /api/v1/backups/export-dr - Export encrypted portable DR package (Owner/Admin only)
         group.MapPost("/export-dr", async (
             ExportDisasterRecoveryRequestDto request,
             IBackupService backupService,
@@ -219,9 +240,10 @@ public static class BackupEndpoints
             {
                 Array.Clear(keyChars, 0, keyChars.Length);
             }
-        });
+        })
+        .RequirePermission(Permission.CreateBackup);
 
-        // POST /api/v1/backups/bare-metal-recovery - Execute crash-safe bare-metal recovery
+        // POST /api/v1/backups/bare-metal-recovery - Execute crash-safe bare-metal recovery (Owner only, loopback required)
         group.MapPost("/bare-metal-recovery", async (
             BareMetalRecoveryRequestDto request,
             IBackupService backupService,
@@ -285,7 +307,8 @@ public static class BackupEndpoints
             {
                 Array.Clear(keyChars, 0, keyChars.Length);
             }
-        });
+        })
+        .RequirePermission(Permission.RestoreDatabase);
 
         return app;
     }

@@ -62,7 +62,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 2. Check local server fallback using authoritative ports (5101 HTTPS / 5100 HTTP) and /api/v1/health
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
 
-            var httpsBaseUrl = $"https://localhost:{WindowsServiceDeploymentSpecification.HttpsPort}";
+            var httpsBaseUrl = $"https://127.0.0.1:{WindowsServiceDeploymentSpecification.HttpsPort}";
             try
             {
                 using var httpsResponse = await httpClient.GetAsync($"{httpsBaseUrl}/api/v1/health", cancellationToken);

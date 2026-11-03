@@ -1,0 +1,168 @@
+<UserControl
+    x:Class="RetailPOS.Client.Views.Controls.StoreSettingsTab"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,16,16">
+        <StackPanel Spacing="20" MaxWidth="900" HorizontalAlignment="Left">
+            <!-- Header Note -->
+            <Border Background="#EFF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="8" Padding="16,12">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <FontIcon Glyph="&#xE73E;" FontSize="18" Foreground="#2563EB" VerticalAlignment="Center" />
+                    <TextBlock Text="Store profile, legal tax details, and receipt customizations are shared across all enrolled counter terminals."
+                               FontSize="13" Foreground="#1E40AF" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Store Profile Card -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Store Profile &amp; Contact" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Store Name -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Store Trading Name *" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox x:Name="StoreNameBox"
+                                     Text="{x:Bind ViewModel.StoreName, Mode=TwoWay}"
+                                     PlaceholderText="e.g., Grozet Supermarket"
+                                     AutomationProperties.AutomationId="StoreNameTextBox" />
+                        </StackPanel>
+
+                        <!-- Tax Number / GSTIN -->
+                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Tax Registration Number / GSTIN" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox x:Name="TaxNumberBox"
+                                     Text="{x:Bind ViewModel.TaxRegistrationNumber, Mode=TwoWay}"
+                                     PlaceholderText="e.g., 33AAAAA0000A1Z5"
+                                     AutomationProperties.AutomationId="TaxNumberTextBox" />
+                        </StackPanel>
+
+                        <!-- Phone -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Primary Phone Number" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox x:Name="StorePhoneBox"
+                                     Text="{x:Bind ViewModel.StorePhone, Mode=TwoWay}"
+                                     PlaceholderText="e.g., +91 98765 43210"
+                                     AutomationProperties.AutomationId="StorePhoneTextBox" />
+                        </StackPanel>
+
+                        <!-- TimeZone -->
+                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Store Timezone" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox x:Name="TimeZoneBox"
+                                     Text="{x:Bind ViewModel.TimeZoneId, Mode=TwoWay}"
+                                     PlaceholderText="India Standard Time"
+                                     AutomationProperties.AutomationId="StoreTimeZoneTextBox" />
+                        </StackPanel>
+
+                        <!-- Physical Address -->
+                        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Spacing="4">
+                            <TextBlock Text="Physical Store Address" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox x:Name="StoreAddressBox"
+                                     Text="{x:Bind ViewModel.StoreAddress, Mode=TwoWay}"
+                                     PlaceholderText="Street, Area, City, State, PIN Code"
+                                     AcceptsReturn="True"
+                                     Height="68"
+                                     AutomationProperties.AutomationId="StoreAddressTextBox" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Billing Policies Card -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Billing Policies &amp; Inventory Rules" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Cash Rounding -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Cash Rounding (50 Paise Rule)" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <ToggleSwitch x:Name="CashRoundingToggle"
+                                          IsOn="{x:Bind ViewModel.CashRoundingEnabled, Mode=TwoWay}"
+                                          OnContent="Enabled (Nearest ₹1/₹0.50)"
+                                          OffContent="Disabled (Exact Paise)"
+                                          AutomationProperties.AutomationId="CashRoundingToggle" />
+                        </StackPanel>
+
+                        <!-- Pricing Model -->
+                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Active Pricing Model" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <Border Background="#F1F5F9" CornerRadius="6" Padding="12,8">
+                                <TextBlock Text="{x:Bind ViewModel.DefaultPricingModel, Mode=OneWay}"
+                                           FontWeight="SemiBold" Foreground="#1E293B" />
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Negative Stock Policy -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Negative Stock Policy" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <Border Background="#F1F5F9" CornerRadius="6" Padding="12,8">
+                                <TextBlock Text="{x:Bind ViewModel.NegativeStockPolicy, Mode=OneWay}"
+                                           FontWeight="SemiBold" Foreground="#1E293B" />
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Receipt Customization Card -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Receipt Customization" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Receipt Footer Message / Return Policy" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                        <TextBox x:Name="ReceiptFooterBox"
+                                 Text="{x:Bind ViewModel.ReceiptFooterMessage, Mode=TwoWay}"
+                                 PlaceholderText="e.g., Thank you for shopping with us! Goods once sold can be exchanged within 7 days."
+                                 AcceptsReturn="True"
+                                 Height="80"
+                                 AutomationProperties.AutomationId="ReceiptFooterTextBox" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Save Action Button -->
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Save Store Settings"
+                        Click="OnSaveClicked"
+                        Background="#2563EB"
+                        Foreground="White"
+                        FontWeight="SemiBold"
+                        Padding="24,10"
+                        CornerRadius="8"
+                        IsEnabled="{x:Bind IsSaveEnabled}"
+                        AutomationProperties.AutomationId="SaveStoreSettingsButton" />
+
+                <ProgressRing IsActive="{x:Bind ViewModel.IsSaving, Mode=OneWay}"
+                              Visibility="{x:Bind SavingVisibility}"
+                              Width="24" Height="24" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

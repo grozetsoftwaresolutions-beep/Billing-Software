@@ -134,3 +134,8 @@ For complete technical and operational documentation, see **[`docs/DOCUMENTATION
 | **Database & Schema** | • [`docs/database/DATABASE_ADMINISTRATION_AND_SCHEMA_MIGRATIONS.md`](file:///docs/database/DATABASE_ADMINISTRATION_AND_SCHEMA_MIGRATIONS.md) |
 | **Updates & Releases** | • [`docs/deployment/SOFTWARE_UPDATES_AND_RELEASE_VERIFICATION.md`](file:///docs/deployment/SOFTWARE_UPDATES_AND_RELEASE_VERIFICATION.md)<br>• [`docs/deployment/RELEASE_ENGINEERING_GUIDE.md`](file:///docs/deployment/RELEASE_ENGINEERING_GUIDE.md) |
 | **Support & Diagnostics** | • [`docs/operations/SUPPORT_DIAGNOSTICS_AND_TROUBLESHOOTING_MANUAL.md`](file:///docs/operations/SUPPORT_DIAGNOSTICS_AND_TROUBLESHOOTING_MANUAL.md) |
+
+
+
+software run command:
+Start-Process "C:\Users\moham\Documents\grozet software solutions\Billing software\src\RetailPOS.Client\bin\Debug\net10.0-windows10.0.19041.0\win-x64\RetailPOS.Client.exe"

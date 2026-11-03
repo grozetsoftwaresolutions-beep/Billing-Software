@@ -253,6 +253,7 @@ public sealed partial class PosViewModel : ObservableObject, IDisposable
         {
             SearchResults.Clear();
             HasSearchResults = false;
+            StatusMessage = "Please enter product name, SKU, or barcode to search.";
             return;
         }
 

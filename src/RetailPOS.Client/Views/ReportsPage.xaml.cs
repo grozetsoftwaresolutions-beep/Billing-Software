@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Microsoft.UI.Text;
+using Windows.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -104,7 +105,9 @@ public sealed partial class ReportsPage : Page
     public string ShiftCashierAndStartTime =>
         $"Cashier: {ViewModel.Shift.ActiveCashierUsername} | Started: {ViewModel.Shift.FormattedSessionStartTime}";
 
-    public string FormattedTimestamp => $"Live Snapshot: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+    public string FormattedTimestamp => ViewModel != null
+        ? $"Live Snapshot: {DateTime.Now:yyyy-MM-dd HH:mm:ss}"
+        : string.Empty;
 
     public SolidColorBrush DiscrepancyBrush => ViewModel.Shift.DiscrepancyPaise switch
     {

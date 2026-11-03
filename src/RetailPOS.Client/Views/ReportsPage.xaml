@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:RetailPOS.Client.ViewModels"
     mc:Ignorable="d"
+    RequestedTheme="Light"
     Background="#F8FAFC">
 
     <Grid RowSpacing="16" Padding="24">
@@ -813,7 +814,7 @@
                                             <TextBlock Grid.Column="4" Text="{x:Bind FormattedGrossSales}" Foreground="#334155" HorizontalAlignment="Right" />
                                             <TextBlock Grid.Column="5" Text="{x:Bind FormattedNetSales}" FontWeight="SemiBold" Foreground="#0F172A" HorizontalAlignment="Right" />
                                             <TextBlock Grid.Column="6" Text="{x:Bind FormattedCashCollected}" Foreground="#15803D" HorizontalAlignment="Right" />
-                                            <TextBlock Grid.Column="7" Text="{x:Bind FormattedTotalDiscrepancies}" FontWeight="SemiBold" Foreground="{x:Bind DiscrepancyBrush}" HorizontalAlignment="Right" />
+                                            <TextBlock Grid.Column="7" Text="{x:Bind FormattedTotalDiscrepancies}" FontWeight="SemiBold" Foreground="#0F172A" HorizontalAlignment="Right" />
                                         </Grid>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>

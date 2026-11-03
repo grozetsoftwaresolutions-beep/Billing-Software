@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:RetailPOS.Client.ViewModels"
     mc:Ignorable="d"
+    RequestedTheme="Light"
     Background="#F8FAFC">
 
     <Grid RowSpacing="16" Padding="24">

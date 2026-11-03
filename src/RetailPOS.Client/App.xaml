@@ -1,12 +1,76 @@
 <Application
     x:Class="RetailPOS.Client.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    RequestedTheme="Light">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ButtonBackground" Color="#F1F5F9" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#CBD5E1" />
+                    <SolidColorBrush x:Key="ButtonForeground" Color="#0F172A" />
+                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#0F172A" />
+                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#0F172A" />
+                    <SolidColorBrush x:Key="ButtonBorderBrush" Color="#CBD5E1" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#94A3B8" />
+
+                    <SolidColorBrush x:Key="AccentButtonBackground" Color="#1E3E62" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2563EB" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#1D4ED8" />
+                    <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF" />
+
+                    <SolidColorBrush x:Key="NavigationViewItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundPointerOver" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#E0F2FE" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#BAE6FD" />
+                    <SolidColorBrush x:Key="NavigationViewItemForeground" Color="#0F172A" />
+                    <SolidColorBrush x:Key="NavigationViewItemForegroundPointerOver" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemForegroundSelected" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemForegroundSelectedPointerOver" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForeground" Color="#334155" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForegroundPointerOver" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForegroundSelected" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForegroundSelectedPointerOver" Color="#0284C7" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="ButtonBackground" Color="#F1F5F9" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#CBD5E1" />
+                    <SolidColorBrush x:Key="ButtonForeground" Color="#0F172A" />
+                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#0F172A" />
+                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#0F172A" />
+                    <SolidColorBrush x:Key="ButtonBorderBrush" Color="#CBD5E1" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#94A3B8" />
+
+                    <SolidColorBrush x:Key="AccentButtonBackground" Color="#1E3E62" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2563EB" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#1D4ED8" />
+                    <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF" />
+
+                    <SolidColorBrush x:Key="NavigationViewItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundPointerOver" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#E0F2FE" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#BAE6FD" />
+                    <SolidColorBrush x:Key="NavigationViewItemForeground" Color="#0F172A" />
+                    <SolidColorBrush x:Key="NavigationViewItemForegroundPointerOver" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemForegroundSelected" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemForegroundSelectedPointerOver" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForeground" Color="#334155" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForegroundPointerOver" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForegroundSelected" Color="#0284C7" />
+                    <SolidColorBrush x:Key="NavigationViewItemIconForegroundSelectedPointerOver" Color="#0284C7" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
 
             <SolidColorBrush x:Key="GrozetNavyBrush" Color="#0B192C" />
             <SolidColorBrush x:Key="GrozetPrimaryBrush" Color="#1E3E62" />

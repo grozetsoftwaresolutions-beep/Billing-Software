@@ -10,6 +10,11 @@ public sealed partial class MainWindow : Window
         this.InitializeComponent();
         this.Title = "GROZET RETAILPOS";
 
+        if (this.Content is FrameworkElement root)
+        {
+            root.RequestedTheme = ElementTheme.Light;
+        }
+
         // Configure initial window size and position
         ConfigureWindowPlacement();
     }

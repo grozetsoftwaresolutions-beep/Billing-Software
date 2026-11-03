@@ -1,0 +1,294 @@
+<UserControl
+    x:Class="RetailPOS.Client.Views.Controls.HardwareSettingsTab"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:RetailPOS.Client.ViewModels"
+    mc:Ignorable="d">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,16,16">
+        <StackPanel Spacing="20" MaxWidth="900" HorizontalAlignment="Left">
+            <!-- Hardware Target Terminal Card -->
+            <Border Background="#F8FAFC" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="10" Padding="16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE7F8;" FontSize="18" Foreground="#475569" />
+                        <StackPanel>
+                            <TextBlock Text="Target Terminal Hardware Profile" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                            <TextBlock Text="{x:Bind TargetTerminalDisplay}" FontSize="12" Foreground="#64748B"
+                                       AutomationProperties.AutomationId="HardwareTerminalIdText" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Button Grid.Column="1" Content="Reload Hardware Profile"
+                            Click="OnReloadClicked"
+                            VerticalAlignment="Center"
+                            AutomationProperties.AutomationId="ReloadHardwareProfileButton" />
+                </Grid>
+            </Border>
+
+            <!-- Diagnostic Interactive Testing Card (FAIL-CLOSED: user-initiated only) -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Interactive Device Diagnostics (Diagnostic Mode)" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+                        <TextBlock Text="Diagnostics actuate physical/simulated hardware only upon explicit command. Tests are never triggered on page load."
+                                   FontSize="12" Foreground="#64748B" />
+                    </StackPanel>
+
+                    <!-- Device Health Overview -->
+                    <Border Background="#F1F5F9" CornerRadius="8" Padding="16,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="{x:Bind ViewModel.HardwareStatusSummary, Mode=OneWay}"
+                                       FontSize="13" Foreground="#1E293B" VerticalAlignment="Center"
+                                       AutomationProperties.AutomationId="HardwareStatusSummaryText" />
+
+                            <Button Grid.Column="1" Content="Check Device Health"
+                                    Click="OnCheckHealthClicked"
+                                    IsEnabled="{x:Bind IsHealthCheckEnabled}"
+                                    AutomationProperties.AutomationId="CheckDeviceHealthButton" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Receipt Printer Diagnostic -->
+                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16,12">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="Thermal Receipt Printer" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                                <TextBlock Text="ESC/POS Test Slip" FontSize="11" Foreground="#64748B" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind ViewModel.PrinterTestStatus, Mode=OneWay}"
+                                       FontSize="12" Foreground="#475569" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       AutomationProperties.AutomationId="PrinterTestStatusText" />
+
+                            <Button Grid.Column="2" Content="Test Print Slip"
+                                    Click="OnTestPrintClicked"
+                                    IsEnabled="{x:Bind IsPrinterTestEnabled}"
+                                    AutomationProperties.AutomationId="TestPrintButton" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Cash Drawer Diagnostic -->
+                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16,12">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="Cash Drawer" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                                <TextBlock Text="Solenoid Kick Pulse" FontSize="11" Foreground="#64748B" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind ViewModel.DrawerTestStatus, Mode=OneWay}"
+                                       FontSize="12" Foreground="#475569" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       AutomationProperties.AutomationId="DrawerTestStatusText" />
+
+                            <Button Grid.Column="2" Content="Trigger Kick Pulse"
+                                    Click="OnTestDrawerClicked"
+                                    IsEnabled="{x:Bind IsDrawerTestEnabled}"
+                                    AutomationProperties.AutomationId="TestDrawerButton" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Electronic Weighing Scale Diagnostic -->
+                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16,12">
+                        <StackPanel Spacing="12">
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="Electronic Weighing Scale" FontSize="13" FontWeight="SemiBold" Foreground="#1E293B" />
+                                    <TextBlock Text="{x:Bind ViewModel.ScaleWeightDisplay, Mode=OneWay}"
+                                               FontSize="18" FontWeight="Bold" Foreground="#0284C7"
+                                               AutomationProperties.AutomationId="ScaleWeightDisplayText" />
+                                </StackPanel>
+
+                                <TextBlock Grid.Column="1"
+                                           Text="{x:Bind ViewModel.ScaleReadingDetails, Mode=OneWay}"
+                                           FontSize="12" Foreground="#475569" VerticalAlignment="Center" TextWrapping="Wrap"
+                                           AutomationProperties.AutomationId="ScaleReadingDetailsText" />
+
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Poll Weight"
+                                            Click="OnPollScaleClicked"
+                                            IsEnabled="{x:Bind IsScalePollEnabled}"
+                                            AutomationProperties.AutomationId="PollScaleButton" />
+                                    <Button Content="Zero"
+                                            Click="OnZeroScaleClicked"
+                                            IsEnabled="{x:Bind IsScalePollEnabled}"
+                                            AutomationProperties.AutomationId="ZeroScaleButton" />
+                                    <Button Content="Tare"
+                                            Click="OnTareScaleClicked"
+                                            IsEnabled="{x:Bind IsScalePollEnabled}"
+                                            AutomationProperties.AutomationId="TareScaleButton" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Printer Configuration Card -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Receipt Printer Configuration" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Connection Type -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Printer Connection Type" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <ComboBox SelectedIndex="{x:Bind PrinterConnectionIndex, Mode=TwoWay}" Width="240"
+                                      AutomationProperties.AutomationId="PrinterConnectionTypeCombo">
+                                <ComboBoxItem Content="Simulated" />
+                                <ComboBoxItem Content="Windows Spooler" />
+                                <ComboBoxItem Content="Network TCP" />
+                                <ComboBoxItem Content="Raw USB" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Printer Name or Address -->
+                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Printer Name / Spooler Queue / IP" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox Text="{x:Bind ViewModel.PrinterNameOrAddress, Mode=TwoWay}"
+                                     AutomationProperties.AutomationId="PrinterNameTextBox" />
+                        </StackPanel>
+
+                        <!-- Paper Width -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Paper Width" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <ComboBox SelectedIndex="{x:Bind PaperWidthIndex, Mode=TwoWay}" Width="240"
+                                      AutomationProperties.AutomationId="PaperWidthCombo">
+                                <ComboBoxItem Content="80mm (Standard Counter)" />
+                                <ComboBoxItem Content="58mm (Compact Mobile)" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Timeout Ms -->
+                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Printer Timeout (Milliseconds)" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <NumberBox Value="{x:Bind ViewModel.PrinterTimeoutMs, Mode=TwoWay}"
+                                       Minimum="1000" Maximum="60000" SpinButtonPlacementMode="Compact"
+                                       AutomationProperties.AutomationId="PrinterTimeoutNumberBox" />
+                        </StackPanel>
+
+                        <!-- Printer Toggles -->
+                        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="24">
+                            <CheckBox Content="Auto Cut Receipt after Print"
+                                      IsChecked="{x:Bind ViewModel.AutoCut, Mode=TwoWay}"
+                                      AutomationProperties.AutomationId="PrinterAutoCutCheckbox" />
+
+                            <CheckBox Content="Open Cash Drawer on Cash Sale Completion"
+                                      IsChecked="{x:Bind ViewModel.OpenDrawerOnCashSale, Mode=TwoWay}"
+                                      AutomationProperties.AutomationId="OpenDrawerOnCashSaleCheckbox" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Cash Drawer & Scale Hardware Parameters -->
+            <Border Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1" Padding="24">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Cash Drawer &amp; Weighing Scale Parameters" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Drawer Kick Pin -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Drawer Kick Solenoid Pin (0 or 1)" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <NumberBox Value="{x:Bind ViewModel.DrawerKickPin, Mode=TwoWay}"
+                                       Minimum="0" Maximum="1" SpinButtonPlacementMode="Compact"
+                                       AutomationProperties.AutomationId="DrawerKickPinNumberBox" />
+                        </StackPanel>
+
+                        <!-- Drawer Pulse On Ms -->
+                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Drawer Pulse Duration (ms)" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <NumberBox Value="{x:Bind ViewModel.DrawerPulseOnMs, Mode=TwoWay}"
+                                       Minimum="10" Maximum="500" SpinButtonPlacementMode="Compact"
+                                       AutomationProperties.AutomationId="DrawerPulseOnNumberBox" />
+                        </StackPanel>
+
+                        <!-- Scale Port Name -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Scale COM Port Name" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <TextBox Text="{x:Bind ViewModel.ScalePortName, Mode=TwoWay}"
+                                     PlaceholderText="COM1"
+                                     AutomationProperties.AutomationId="ScalePortNameTextBox" />
+                        </StackPanel>
+
+                        <!-- Scale Baud Rate -->
+                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Scale Baud Rate" FontSize="12" FontWeight="Medium" Foreground="#475569" />
+                            <NumberBox Value="{x:Bind ViewModel.ScaleBaudRate, Mode=TwoWay}"
+                                       Minimum="1200" Maximum="115200" SpinButtonPlacementMode="Compact"
+                                       AutomationProperties.AutomationId="ScaleBaudRateNumberBox" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Save Hardware Settings Action Button -->
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Save Hardware Configuration"
+                        Click="OnSaveClicked"
+                        Background="#2563EB"
+                        Foreground="White"
+                        FontWeight="SemiBold"
+                        Padding="24,10"
+                        CornerRadius="8"
+                        IsEnabled="{x:Bind IsSaveEnabled}"
+                        AutomationProperties.AutomationId="SaveHardwareConfigButton" />
+
+                <ProgressRing IsActive="{x:Bind ViewModel.IsSaving, Mode=OneWay}"
+                              Visibility="{x:Bind SavingVisibility}"
+                              Width="24" Height="24" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

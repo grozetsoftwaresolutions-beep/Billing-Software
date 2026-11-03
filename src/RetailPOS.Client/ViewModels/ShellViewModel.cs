@@ -147,11 +147,10 @@ public sealed partial class ShellViewModel : ObservableObject
         try
         {
             using var probeClient = new HttpClient();
-            var discoveryClient = new ServerDiscoveryClient(probeClient);
             var enrollmentClient = new TerminalEnrollmentClient(probeClient);
             var pairingToken = enrollmentClient.LoadPairingToken();
 
-            if (discoveryClient.SecurityState == ClientSecurityState.PinnedNormal && !string.IsNullOrWhiteSpace(pairingToken))
+            if (!string.IsNullOrWhiteSpace(pairingToken))
             {
                 IsTerminalReady = true;
                 TerminalStatusText = "Terminal: Ready";
@@ -180,33 +179,86 @@ public sealed partial class ShellViewModel : ObservableObject
 
         try
         {
-            // 1. Attempt UDP broadcast discovery with a short timeout on port 5105
-            var discovered = await ServerDiscoveryClient.DiscoverServerUdpAsync(1000, cancellationToken);
-            var serverUrl = discovered?.HttpsBaseUrl ?? discovered?.HttpBaseUrl;
-            if (discovered != null && !string.IsNullOrWhiteSpace(serverUrl))
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+
+            // 1. Probe local development / server HTTPS endpoints (port 5101) first: 127.0.0.1 and localhost
+            string[] localHttpsUrls =
+            [
+                $"https://127.0.0.1:{WindowsServiceDeploymentSpecification.HttpsPort}",
+                $"https://localhost:{WindowsServiceDeploymentSpecification.HttpsPort}"
+            ];
+
+            foreach (var httpsBaseUrl in localHttpsUrls)
             {
-                IsServerConnected = true;
-                ServerStatusText = "Server: Connected";
-                ServerEndpoint = serverUrl;
-                StatusMessage = $"Connected to LAN server at {serverUrl}";
-                return;
+                try
+                {
+                    using var httpsResponse = await httpClient.GetAsync($"{httpsBaseUrl}/api/v1/health", cancellationToken);
+                    if (httpsResponse.IsSuccessStatusCode)
+                    {
+                        IsServerConnected = true;
+                        ServerStatusText = "Server: Online";
+                        ServerEndpoint = httpsBaseUrl;
+                        StatusMessage = $"Connected to local server on port {WindowsServiceDeploymentSpecification.HttpsPort} (HTTPS).";
+                        return;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Proceed to next local HTTPS candidate
+                }
             }
 
-            // 2. Check local server fallback using authoritative ports (5101 HTTPS / 5100 HTTP) and /api/v1/health
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+            // 2. Probe local HTTP fallback (port 5100)
+            string[] localHttpUrls =
+            [
+                $"http://127.0.0.1:{WindowsServiceDeploymentSpecification.HttpPort}",
+                $"http://localhost:{WindowsServiceDeploymentSpecification.HttpPort}"
+            ];
 
-            // 2a. Probe local HTTPS (port 5101)
-            var httpsBaseUrl = $"https://localhost:{WindowsServiceDeploymentSpecification.HttpsPort}";
+            foreach (var httpBaseUrl in localHttpUrls)
+            {
+                try
+                {
+                    using var httpResponse = await httpClient.GetAsync($"{httpBaseUrl}/api/v1/health", cancellationToken);
+                    if (httpResponse.IsSuccessStatusCode)
+                    {
+                        IsServerConnected = true;
+                        ServerStatusText = "Server: Online";
+                        ServerEndpoint = httpBaseUrl;
+                        StatusMessage = $"Connected to local server on port {WindowsServiceDeploymentSpecification.HttpPort} (HTTP).";
+                        return;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Proceed to next local HTTP candidate
+                }
+            }
+
+            // 3. Fall back to UDP broadcast discovery for remote LAN server
             try
             {
-                using var httpsResponse = await httpClient.GetAsync($"{httpsBaseUrl}/api/v1/health", cancellationToken);
-                if (httpsResponse.IsSuccessStatusCode)
+                var discovered = await ServerDiscoveryClient.DiscoverServerUdpAsync(1000, cancellationToken);
+                var serverUrl = discovered?.HttpsBaseUrl ?? discovered?.HttpBaseUrl;
+                if (discovered != null && !string.IsNullOrWhiteSpace(serverUrl))
                 {
-                    IsServerConnected = true;
-                    ServerStatusText = "Server: Connected";
-                    ServerEndpoint = httpsBaseUrl;
-                    StatusMessage = $"Connected to local server on port {WindowsServiceDeploymentSpecification.HttpsPort} (HTTPS).";
-                    return;
+                    using var lanResponse = await httpClient.GetAsync($"{serverUrl.TrimEnd('/')}/api/v1/health", cancellationToken);
+                    if (lanResponse.IsSuccessStatusCode)
+                    {
+                        IsServerConnected = true;
+                        ServerStatusText = "Server: Online";
+                        ServerEndpoint = serverUrl;
+                        StatusMessage = $"Connected to LAN server at {serverUrl}";
+                        return;
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -215,33 +267,10 @@ public sealed partial class ShellViewModel : ObservableObject
             }
             catch
             {
-                // HTTPS probe failed; proceed to HTTP fallback
+                // UDP discovery probe failed
             }
 
-            // 2b. Probe local HTTP (port 5100)
-            var httpBaseUrl = $"http://localhost:{WindowsServiceDeploymentSpecification.HttpPort}";
-            try
-            {
-                using var httpResponse = await httpClient.GetAsync($"{httpBaseUrl}/api/v1/health", cancellationToken);
-                if (httpResponse.IsSuccessStatusCode)
-                {
-                    IsServerConnected = true;
-                    ServerStatusText = "Server: Connected";
-                    ServerEndpoint = httpBaseUrl;
-                    StatusMessage = $"Connected to local server on port {WindowsServiceDeploymentSpecification.HttpPort} (HTTP).";
-                    return;
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                // HTTP probe failed; proceed to offline fallback
-            }
-
-            // 3. Graceful offline fallback
+            // 4. Graceful offline fallback
             IsServerConnected = false;
             ServerStatusText = "Server: Offline";
             ServerEndpoint = "Offline (Standalone)";

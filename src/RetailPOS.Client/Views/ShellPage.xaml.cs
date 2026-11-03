@@ -90,6 +90,8 @@ public sealed partial class ShellPage : Page
         if (ViewModel.IsUserAuthenticated)
         {
             ApplyRolePermissions();
+            _ = ViewModel.InitializeAsync();
+
             if (ContentFrame.Content == null)
             {
 #if DEBUG
@@ -140,9 +142,7 @@ public sealed partial class ShellPage : Page
         NavReports.Visibility = (RolePermissions.HasPermission(currentRole, Permission.ViewReports) || currentRole == RoleType.Cashier)
             ? Visibility.Visible : Visibility.Collapsed;
 
-        var canSettings = RolePermissions.HasPermission(currentRole, Permission.ManageUsers)
-            || RolePermissions.HasPermission(currentRole, Permission.ManageStoreSettings)
-            || RolePermissions.HasPermission(currentRole, Permission.ManageTerminals);
+        var canSettings = currentRole is RoleType.Owner or RoleType.Admin;
 
         NavView.IsSettingsVisible = canSettings;
     }
@@ -159,7 +159,11 @@ public sealed partial class ShellPage : Page
     {
         if (args.IsSettingsSelected)
         {
-            ContentFrame.Navigate(typeof(SettingsPlaceholderPage));
+            if (ClientSessionManager.Instance.CurrentRole is not (RoleType.Owner or RoleType.Admin))
+            {
+                return;
+            }
+            ContentFrame.Navigate(typeof(SettingsPage));
             ViewModel.CurrentModuleName = "Settings & Administration";
             return;
         }
@@ -167,6 +171,55 @@ public sealed partial class ShellPage : Page
         if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
         {
             NavigateTo(tag);
+        }
+    }
+
+    private void OnNavBackRequested(NavigationView sender, NavigationViewBackRequestedEventArgs args)
+    {
+        if (ContentFrame.CanGoBack)
+        {
+            ContentFrame.GoBack();
+            UpdateNavSelectionAfterBack();
+        }
+    }
+
+    private void UpdateNavSelectionAfterBack()
+    {
+        var content = ContentFrame.Content;
+        if (content is HomePage)
+        {
+            ViewModel.CurrentModuleName = "Home / Dashboard";
+            NavView.SelectedItem = NavHome;
+        }
+        else if (content is PosPage)
+        {
+            ViewModel.CurrentModuleName = "POS & Billing";
+            NavView.SelectedItem = NavPos;
+        }
+        else if (content is SalesHistoryPage)
+        {
+            ViewModel.CurrentModuleName = "Sales History & Invoices";
+            NavView.SelectedItem = NavSalesHistory;
+        }
+        else if (content is CustomersPage)
+        {
+            ViewModel.CurrentModuleName = "Customers & Credit";
+            NavView.SelectedItem = NavCustomers;
+        }
+        else if (content is ProductsPage)
+        {
+            ViewModel.CurrentModuleName = "Products & Stock";
+            NavView.SelectedItem = NavProducts;
+        }
+        else if (content is ReportsPage)
+        {
+            ViewModel.CurrentModuleName = "Reports & Analytics";
+            NavView.SelectedItem = NavReports;
+        }
+        else if (content is SettingsPage)
+        {
+            ViewModel.CurrentModuleName = "Settings & Administration";
+            NavView.SelectedItem = NavView.SettingsItem;
         }
     }
 
@@ -221,7 +274,11 @@ public sealed partial class ShellPage : Page
                 break;
 
             case "Settings":
-                ContentFrame.Navigate(typeof(SettingsPlaceholderPage));
+                if (ClientSessionManager.Instance.CurrentRole is not (RoleType.Owner or RoleType.Admin))
+                {
+                    return;
+                }
+                ContentFrame.Navigate(typeof(SettingsPage));
                 ViewModel.CurrentModuleName = "Settings & Administration";
                 NavView.SelectedItem = NavView.SettingsItem;
                 break;
@@ -238,6 +295,11 @@ public sealed partial class ShellPage : Page
                 break;
             }
         }
+    }
+
+    private void OnHeaderHomeClicked(object sender, RoutedEventArgs e)
+    {
+        NavigateTo("Home");
     }
 
     private async void OnHeaderLockClicked(object sender, RoutedEventArgs e)

@@ -32,7 +32,7 @@ public sealed class ProductApiClient
     {
         _httpClient = httpClient ?? new HttpClient();
 
-        var baseUrl = httpsBaseUrl ?? $"https://localhost:{WindowsServiceDeploymentSpecification.HttpsPort}";
+        var baseUrl = httpsBaseUrl ?? $"https://127.0.0.1:{WindowsServiceDeploymentSpecification.HttpsPort}";
         if (!baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Product catalog API requests strictly require HTTPS. Plain HTTP is prohibited.");

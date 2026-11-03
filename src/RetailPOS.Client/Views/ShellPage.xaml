@@ -7,6 +7,7 @@
     xmlns:vm="using:RetailPOS.Client.ViewModels"
     xmlns:local="using:RetailPOS.Client.Views"
     mc:Ignorable="d"
+    RequestedTheme="Light"
     Background="#F1F5F9">
 
     <Grid>
@@ -41,14 +42,14 @@
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Center: Current Module Indicator -->
+                <!-- Center: Current Module Indicator (Click to go Home) -->
                 <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Border Background="#1E293B" CornerRadius="16" Padding="14, 5" BorderBrush="#334155" BorderThickness="1">
+                    <Button Click="OnHeaderHomeClicked" Background="#1E293B" CornerRadius="16" Padding="14, 5" BorderBrush="#334155" BorderThickness="1" ToolTipService.ToolTip="Click to go to Home / Dashboard">
                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xE7BF;" FontSize="12" Foreground="#38BDF8" VerticalAlignment="Center" />
+                            <FontIcon Glyph="&#xE80F;" FontSize="12" Foreground="#38BDF8" VerticalAlignment="Center" />
                             <TextBlock Text="{x:Bind ViewModel.CurrentModuleName, Mode=OneWay}" Foreground="#F8FAFC" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
                         </StackPanel>
-                    </Border>
+                    </Button>
                 </StackPanel>
 
                 <!-- Right: Session & Status Badges + Lock/Logout Controls -->
@@ -120,21 +121,44 @@
             Grid.Row="1"
             Visibility="{x:Bind AuthenticatedVisibility, Mode=OneWay}"
             PaneDisplayMode="Left"
+            IsPaneOpen="True"
             OpenPaneLength="220"
             CompactPaneLength="48"
-            IsBackButtonVisible="Collapsed"
+            IsBackButtonVisible="Auto"
+            BackRequested="OnNavBackRequested"
             IsSettingsVisible="True"
             SelectionChanged="OnNavSelectionChanged"
             Loaded="OnNavViewLoaded"
             Background="#F8FAFC">
 
+            <NavigationView.Resources>
+                <!-- Explicit high-contrast styling for NavigationView items and states -->
+                <SolidColorBrush x:Key="NavigationViewItemBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="NavigationViewItemBackgroundPointerOver" Color="#E2E8F0" />
+                <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#E0F2FE" />
+                <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#BAE6FD" />
+
+                <SolidColorBrush x:Key="NavigationViewItemForeground" Color="#0F172A" />
+                <SolidColorBrush x:Key="NavigationViewItemForegroundPointerOver" Color="#0284C7" />
+                <SolidColorBrush x:Key="NavigationViewItemForegroundSelected" Color="#0284C7" />
+                <SolidColorBrush x:Key="NavigationViewItemForegroundSelectedPointerOver" Color="#0284C7" />
+
+                <SolidColorBrush x:Key="NavigationViewItemIconForeground" Color="#334155" />
+                <SolidColorBrush x:Key="NavigationViewItemIconForegroundPointerOver" Color="#0284C7" />
+                <SolidColorBrush x:Key="NavigationViewItemIconForegroundSelected" Color="#0284C7" />
+                <SolidColorBrush x:Key="NavigationViewItemIconForegroundSelectedPointerOver" Color="#0284C7" />
+
+                <SolidColorBrush x:Key="NavigationViewBackButtonForeground" Color="#0F172A" />
+                <SolidColorBrush x:Key="NavigationViewBackButtonForegroundPointerOver" Color="#0284C7" />
+            </NavigationView.Resources>
+
             <NavigationView.MenuItems>
-                <NavigationViewItem x:Name="NavHome" Content="Home" Tag="Home" Icon="Home" />
-                <NavigationViewItem x:Name="NavPos" Content="POS &amp; Billing" Tag="POS" Icon="Shop" />
-                <NavigationViewItem x:Name="NavSalesHistory" Content="Sales History" Tag="SalesHistory" Icon="Clock" />
-                <NavigationViewItem x:Name="NavCustomers" Content="Customers &amp; Credit" Tag="Customers" Icon="Contact" />
-                <NavigationViewItem x:Name="NavProducts" Content="Products &amp; Stock" Tag="Products" Icon="AllApps" />
-                <NavigationViewItem x:Name="NavReports" Content="Reports" Tag="Reports" Icon="Document" />
+                <NavigationViewItem x:Name="NavHome" Content="Home" Tag="Home" Icon="Home" FontWeight="SemiBold" Foreground="#0F172A" />
+                <NavigationViewItem x:Name="NavPos" Content="POS &amp; Billing" Tag="POS" Icon="Shop" FontWeight="SemiBold" Foreground="#0F172A" />
+                <NavigationViewItem x:Name="NavSalesHistory" Content="Sales History" Tag="SalesHistory" Icon="Clock" FontWeight="SemiBold" Foreground="#0F172A" />
+                <NavigationViewItem x:Name="NavCustomers" Content="Customers &amp; Credit" Tag="Customers" Icon="Contact" FontWeight="SemiBold" Foreground="#0F172A" />
+                <NavigationViewItem x:Name="NavProducts" Content="Products &amp; Stock" Tag="Products" Icon="AllApps" FontWeight="SemiBold" Foreground="#0F172A" />
+                <NavigationViewItem x:Name="NavReports" Content="Reports" Tag="Reports" Icon="Document" FontWeight="SemiBold" Foreground="#0F172A" />
             </NavigationView.MenuItems>
 
             <NavigationView.Content>

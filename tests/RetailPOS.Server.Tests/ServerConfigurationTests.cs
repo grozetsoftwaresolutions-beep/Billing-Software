@@ -1,3 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using RetailPOS.Server.Configuration;
 using Xunit;
 
@@ -88,5 +100,70 @@ public sealed class ServerConfigurationTests
 
         Assert.Contains("Data Source=", connString, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Cache=Shared", connString, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void KestrelServerOptions_Limits_MaxRequestBodySize_IsWiredFromConfiguration()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        var kestrelOptions = factory.Services.GetRequiredService<IOptions<KestrelServerOptions>>().Value;
+
+        Assert.NotNull(kestrelOptions.Limits.MaxRequestBodySize);
+        Assert.Equal(10 * 1024 * 1024, kestrelOptions.Limits.MaxRequestBodySize.Value);
+    }
+
+    [Fact]
+    public void FormOptions_MultipartBodyLengthLimit_IsWiredFromConfiguration()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        var formOptions = factory.Services.GetRequiredService<IOptions<FormOptions>>().Value;
+
+        Assert.Equal(10 * 1024 * 1024, formOptions.MultipartBodyLengthLimit);
+    }
+
+    [Fact]
+    public void RequestSizeLimit_CustomConfiguration_OverridesKestrelAndFormOptions()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var customFactory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ServerConfiguration:MaxRequestBodySizeBytes"] = "20971520" // 20 MB
+                });
+            });
+        });
+
+        var kestrelOptions = customFactory.Services.GetRequiredService<IOptions<KestrelServerOptions>>().Value;
+        var formOptions = customFactory.Services.GetRequiredService<IOptions<FormOptions>>().Value;
+
+        Assert.NotNull(kestrelOptions.Limits.MaxRequestBodySize);
+        Assert.Equal(20971520, kestrelOptions.Limits.MaxRequestBodySize.Value);
+        Assert.Equal(20971520, formOptions.MultipartBodyLengthLimit);
+    }
+
+    [Fact]
+    public void RequestSizeLimit_WhenZeroOrNegative_DefaultsSafelyTo10MB()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var customFactory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ServerConfiguration:MaxRequestBodySizeBytes"] = "-1"
+                });
+            });
+        });
+
+        var kestrelOptions = customFactory.Services.GetRequiredService<IOptions<KestrelServerOptions>>().Value;
+        var formOptions = customFactory.Services.GetRequiredService<IOptions<FormOptions>>().Value;
+
+        Assert.NotNull(kestrelOptions.Limits.MaxRequestBodySize);
+        Assert.Equal(10 * 1024 * 1024, kestrelOptions.Limits.MaxRequestBodySize.Value);
+        Assert.Equal(10 * 1024 * 1024, formOptions.MultipartBodyLengthLimit);
     }
 }

@@ -7,6 +7,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using RetailPOS.Contracts.Backup;
 using RetailPOS.Contracts.Catalog;
 using RetailPOS.Contracts.CashSessions;
 using RetailPOS.Contracts.Common;
@@ -15,6 +16,9 @@ using RetailPOS.Contracts.Customers;
 using RetailPOS.Contracts.Hardware;
 using RetailPOS.Contracts.Reports;
 using RetailPOS.Contracts.Sales;
+using RetailPOS.Contracts.Security;
+using RetailPOS.Contracts.Terminals;
+using RetailPOS.Contracts.Users;
 
 namespace RetailPOS.Client.Services;
 
@@ -38,7 +42,7 @@ public sealed class PosApiClient
     {
         _httpClient = httpClient ?? new HttpClient();
 
-        var baseUrl = httpsBaseUrl ?? $"https://localhost:{WindowsServiceDeploymentSpecification.HttpsPort}";
+        var baseUrl = httpsBaseUrl ?? $"https://127.0.0.1:{WindowsServiceDeploymentSpecification.HttpsPort}";
         if (!baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("POS API requests strictly require HTTPS. Plain HTTP is prohibited.");
@@ -734,4 +738,406 @@ public sealed class PosApiClient
 
         return ApiResponse.Fail<T>("Empty response received from store server.", "EMPTY_RESPONSE");
     }
+
+    // ==========================================
+    // Phase 17.9: Store Settings
+    // ==========================================
+
+    public async Task<ApiResponse<StoreSettingsDto>> UpdateStoreSettingsAsync(
+        UpdateStoreSettingsRequest updateRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(updateRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/store/settings";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(updateRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<StoreSettingsDto>(response, ct);
+    }
+
+    // ==========================================
+    // Phase 17.9: Security Settings & Failsafe
+    // ==========================================
+
+    public async Task<ApiResponse<SecuritySettingsEnvelopeDto>> GetSecuritySettingsAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/settings/security";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<SecuritySettingsEnvelopeDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<string>> UpdateSecuritySettingsAsync(
+        UpdateSecuritySettingsRequest updateRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(updateRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/settings/security";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(updateRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<string>(response, ct);
+    }
+
+    // ==========================================
+    // Phase 17.9: Terminal Hardware Configuration
+    // ==========================================
+
+    public async Task<ApiResponse<TerminalHardwareConfigDto>> GetTerminalHardwareConfigAsync(
+        Guid terminalId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/terminals/{terminalId}/hardware-config";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: false);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<TerminalHardwareConfigDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<TerminalHardwareConfigDto>> UpdateTerminalHardwareConfigAsync(
+        Guid terminalId,
+        UpdateTerminalHardwareConfigRequest updateRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(updateRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/terminals/{terminalId}/hardware-config";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(updateRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: false);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<TerminalHardwareConfigDto>(response, ct);
+    }
+
+    // ==========================================
+    // Phase 17.9: Hardware Diagnostics
+    // ==========================================
+
+    public async Task<ApiResponse<TestPrintResponseDto>> TestPrintAsync(
+        TestPrintRequestDto printRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(printRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/hardware/printer/test-print";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(printRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<TestPrintResponseDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<DrawerKickResponseDto>> TestDrawerKickAsync(
+        DrawerKickRequestDto? kickRequest = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/hardware/drawer/test-kick";
+        var payload = kickRequest ?? new DrawerKickRequestDto(
+            "Manual diagnostic test kick",
+            ClientSessionManager.Instance.CurrentTerminalId ?? Guid.Empty);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<DrawerKickResponseDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<ScaleWeightReadingDto>> GetScaleWeightAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/hardware/scale/current-weight";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<ScaleWeightReadingDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<bool>> ZeroScaleAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/hardware/scale/zero";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<bool>(response, ct);
+    }
+
+    public async Task<ApiResponse<bool>> TareScaleAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/hardware/scale/tare";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<bool>(response, ct);
+    }
+
+    public async Task<ApiResponse<HardwareStatusDto>> GetHardwareStatusAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/hardware/status";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token, attachTerminalHeaders: true);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<HardwareStatusDto>(response, ct);
+    }
+
+    // ==========================================
+    // Phase 17.9: Terminals Management
+    // ==========================================
+
+    public async Task<ApiResponse<IReadOnlyList<TerminalDto>>> GetTerminalsAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/terminals";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<IReadOnlyList<TerminalDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<TerminalDto>> SetTerminalStatusAsync(
+        Guid terminalId,
+        bool isActive,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/terminals/{terminalId}/status?isActive={isActive.ToString().ToLowerInvariant()}";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<TerminalDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<EnrollmentTokenResponseDto>> GenerateEnrollmentTokenAsync(
+        EnrollmentTokenRequestDto tokenRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(tokenRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/terminals/tokens/enrollment";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(tokenRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<EnrollmentTokenResponseDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<EnrollmentTokenResponseDto>> GenerateRepairTokenAsync(
+        EnrollmentTokenRequestDto tokenRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(tokenRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/terminals/tokens/repair";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(tokenRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<EnrollmentTokenResponseDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<object>> DecommissionTerminalAsync(
+        Guid terminalId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/terminals/{terminalId}/decommission";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<object>(response, ct);
+    }
+
+    // ==========================================
+    // Phase 17.9: Staff / User Management
+    // ==========================================
+
+    public async Task<ApiResponse<IReadOnlyList<UserDto>>> GetUsersAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/users";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<IReadOnlyList<UserDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<UserDto>> CreateUserAsync(
+        CreateUserRequest userRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(userRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/users";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(userRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<UserDto>(response, ct);
+    }
+
+    public async Task<ApiResponse<UserOperationResponse>> ActivateUserAsync(
+        Guid userId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/users/{userId}/activate";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<UserOperationResponse>(response, ct);
+    }
+
+    public async Task<ApiResponse<UserOperationResponse>> DeactivateUserAsync(
+        Guid userId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/users/{userId}/deactivate";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<UserOperationResponse>(response, ct);
+    }
+
+    public async Task<ApiResponse<UserOperationResponse>> UnlockUserAsync(
+        Guid userId,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/users/{userId}/unlock";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<UserOperationResponse>(response, ct);
+    }
+
+    public async Task<ApiResponse<UserOperationResponse>> ResetUserCredentialsAsync(
+        Guid userId,
+        ResetUserCredentialsRequest resetRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(resetRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/users/{userId}/credentials";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(resetRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<UserOperationResponse>(response, ct);
+    }
+
+    public async Task<ApiResponse<UserOperationResponse>> ChangeUserRoleAsync(
+        Guid userId,
+        UpdateUserRoleRequest roleRequest,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(roleRequest);
+        var url = $"{_httpsBaseUrl}/api/v1/users/{userId}/role";
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(roleRequest, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<UserOperationResponse>(response, ct);
+    }
+
+    // ==========================================
+    // Phase 17.9: Backups
+    // ==========================================
+
+    public async Task<ApiResponse<IReadOnlyList<BackupRecordDto>>> GetBackupsAsync(
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/backups";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<IReadOnlyList<BackupRecordDto>>(response, ct);
+    }
+
+    public async Task<ApiResponse<BackupRecordDto>> CreateBackupAsync(
+        CreateBackupRequestDto? backupRequest = null,
+        string? token = null,
+        CancellationToken ct = default)
+    {
+        var url = $"{_httpsBaseUrl}/api/v1/backups";
+        var payload = backupRequest ?? new CreateBackupRequestDto();
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions)
+        };
+        ApplySecurityHeaders(request, token);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        return await ReadResponseAsync<BackupRecordDto>(response, ct);
+    }
 }
+
+public sealed record SecuritySettingsEnvelopeDto(
+    SecuritySettingsDto Settings,
+    FailsafeStatusResponse Failsafe);
+
+public sealed record UserOperationResponse(string? Message = null);
